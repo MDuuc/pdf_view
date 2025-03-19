@@ -33,10 +33,13 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
   late Offset _currentPosition;
   late double _currentWidth;
   late double _currentHeight;
-  int _selectedPage = 1; // Default page to add image
-  int _totalPages = 1; // Total pages of the PDF
+  int _currentPage = 1;
   bool _isSaving = false;
-  late PDFViewController _pdfController; // Controller để điều khiển PDFView
+
+  double _pdfWidthInPoints = 0;
+  double _pdfHeightInPoints = 0;
+  double _screenWidthInPixels = 0;
+  double _screenHeightInPixels = 0;
 
   @override
   void initState() {
@@ -44,24 +47,55 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
     _currentPosition = widget.imagePosition;
     _currentWidth = widget.imageWidth;
     _currentHeight = widget.imageHeight;
-    _updateTotalPages(); // Get total number of pages when initializing
+    _updateTotalPages();
+    _initializePdfDimensions();
   }
 
-  // Update total pages of the PDF
   Future<void> _updateTotalPages() async {
     final pdfFile = File(widget.filePath);
     final px.PdfDocument pdfDocument = await px.PdfDocument.openFile(pdfFile.path);
     setState(() {
-      _totalPages = pdfDocument.pagesCount;
     });
     await pdfDocument.close();
   }
 
-  // Save PDF with overlaid image
+  Future<void> _initializePdfDimensions() async {
+    final pdfFile = File(widget.filePath);
+    final px.PdfDocument pdfDocument = await px.PdfDocument.openFile(pdfFile.path);
+    final page = await pdfDocument.getPage(1);
+    setState(() {
+      _pdfWidthInPoints = page.width.toDouble();
+      _pdfHeightInPoints = page.height.toDouble();
+    });
+    await page.close();
+    await pdfDocument.close();
+  }
+
+  Offset _convertToPdfCoordinates(Offset flutterPosition) {
+    _screenWidthInPixels = MediaQuery.of(context).size.width;
+    _screenHeightInPixels = MediaQuery.of(context).size.height -
+        AppBar().preferredSize.height -
+        MediaQuery.of(context).padding.top;
+
+    final scaleX = _pdfWidthInPoints / _screenWidthInPixels;
+    final scaleY = _pdfHeightInPoints / _screenHeightInPixels;
+
+    final pdfX = flutterPosition.dx * scaleX;
+    final pdfY = _pdfHeightInPoints - (flutterPosition.dy * scaleY);
+
+    return Offset(pdfX, pdfY);
+  }
+
+  // Updated size conversion: Keep size closer to pixel values
+  Size _convertToPdfSize(double width, double height) {
+    const double dpiFactor = 1.0; // 1 pixel = 1 point (adjust this value if needed)
+    return Size(width * dpiFactor, height * dpiFactor);
+  }
+
   Future<void> _savePDF() async {
     if (widget.imagePath == null) {
       ScaffoldMessenger.of(context).showSnackBar(
-        SnackBar(content: Text('Vui lòng chọn một ảnh để lưu')),
+        SnackBar(content: Text('Please select an image to save')),
       );
       return;
     }
@@ -71,25 +105,17 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
     });
 
     try {
-      // Open original PDF with pdfx and render as image
       final pdfFile = File(widget.filePath);
       final px.PdfDocument pdfDocument = await px.PdfDocument.openFile(pdfFile.path);
       final pdfPageCount = pdfDocument.pagesCount;
-
-      // Create new PDF using pdf package
       final pdf = pw.Document();
 
-      // Read image file to overlay
       final imageBytes = await File(widget.imagePath!).readAsBytes();
       final pw.MemoryImage overlayImage = pw.MemoryImage(imageBytes);
 
-      // Unit conversion (assume 1 pixel = 1 point for simplicity)
-      final double imgLeft = _currentPosition.dx;
-      final double imgTop = _currentPosition.dy;
-      final double imgWidth = _currentWidth;
-      final double imgHeight = _currentHeight;
+      final pdfPosition = _convertToPdfCoordinates(_currentPosition);
+      final pdfSize = _convertToPdfSize(_currentWidth, _currentHeight);
 
-      // Add all pages from original PDF
       for (int i = 1; i <= pdfPageCount; i++) {
         final page = await pdfDocument.getPage(i);
         final pageImage = await page.render(
@@ -104,17 +130,15 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
             build: (pw.Context context) {
               return pw.Stack(
                 children: [
-                  // Original PDF page as image
                   pw.Image(pw.MemoryImage(pageBytes)),
-                  // Add overlay image to the selected page
-                  if (context.pageNumber == _selectedPage)
+                  if (context.pageNumber == _currentPage)
                     pw.Positioned(
-                      left: imgLeft,
-                      top: imgTop,
+                      left: pdfPosition.dx,
+                      top: pdfPosition.dy - pdfSize.height,
                       child: pw.Image(
                         overlayImage,
-                        width: imgWidth,
-                        height: imgHeight,
+                        width: pdfSize.width,
+                        height: pdfSize.height,
                       ),
                     ),
                 ],
@@ -122,10 +146,9 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
             },
           ),
         );
-        await page.close(); // Release resources
+        await page.close();
       }
 
-      // Save new file
       final outputDir = await getApplicationDocumentsDirectory();
       final newPdfPath =
           "${outputDir.path}/edited_${DateTime.now().millisecondsSinceEpoch}.pdf";
@@ -137,73 +160,29 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
           _isSaving = false;
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('PDF đã được lưu tại $newPdfPath')),
+          SnackBar(content: Text('PDF saved at $newPdfPath')),
         );
-        Navigator.pop(context, newPdfPath); // Return the new file path to HomeScreen
+        Navigator.pop(context, newPdfPath);
       }
 
-      await pdfDocument.close(); // Release resources
+      await pdfDocument.close();
     } catch (e) {
       if (mounted) {
         setState(() {
           _isSaving = false;
         });
         ScaffoldMessenger.of(context).showSnackBar(
-          SnackBar(content: Text('Lỗi khi lưu PDF: $e')),
+          SnackBar(content: Text('Error saving PDF: $e')),
         );
       }
     }
-  }
-
-  // Show dialog to select page
-  Future<void> _showPageSelectorDialog() async {
-    final TextEditingController pageController = TextEditingController(text: _selectedPage.toString());
-    await showDialog(
-      context: context,
-      builder: (context) {
-        return AlertDialog(
-          title: Text('Chọn trang để thêm ảnh'),
-          content: TextField(
-            controller: pageController,
-            keyboardType: TextInputType.number,
-            decoration: InputDecoration(
-              labelText: 'Nhập số trang (1 - $_totalPages)',
-              border: OutlineInputBorder(),
-            ),
-          ),
-          actions: [
-            TextButton(
-              onPressed: () => Navigator.pop(context),
-              child: Text('Hủy'),
-            ),
-            TextButton(
-              onPressed: () async {
-                final int? page = int.tryParse(pageController.text);
-                if (page != null && page >= 1 && page <= _totalPages) {
-                  setState(() {
-                    _selectedPage = page;
-                  });
-                  await _pdfController.setPage(page - 1); // Switch to selected page (0-based index)
-                  Navigator.pop(context);
-                } else {
-                  ScaffoldMessenger.of(context).showSnackBar(
-                    SnackBar(content: Text('Vui lòng nhập trang hợp lệ (1 - $_totalPages)')),
-                  );
-                }
-              },
-              child: Text('OK'),
-            ),
-          ],
-        );
-      },
-    );
   }
 
   @override
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text("Xem và chỉnh sửa PDF"),
+        title: Text("View and Edit PDF"),
         actions: [
           IconButton(
             icon: _isSaving
@@ -214,12 +193,7 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
                   )
                 : Icon(Icons.save),
             onPressed: _isSaving ? null : _savePDF,
-            tooltip: 'Lưu PDF',
-          ),
-          IconButton(
-            icon: Icon(Icons.pageview),
-            onPressed: _isSaving ? null : _showPageSelectorDialog,
-            tooltip: 'Chọn trang',
+            tooltip: 'Save PDF',
           ),
         ],
       ),
@@ -229,14 +203,15 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
             filePath: widget.filePath,
             swipeHorizontal: false,
             fitPolicy: FitPolicy.BOTH,
+            pageFling: false,
+            pageSnap: false,
             autoSpacing: false,
             onViewCreated: (PDFViewController controller) {
-              _pdfController = controller;
             },
             onPageChanged: (int? page, int? total) {
               if (page != null) {
                 setState(() {
-                  _selectedPage = page + 1; // Update selected page (1-based index)
+                  _currentPage = page + 1;
                 });
               }
             },
