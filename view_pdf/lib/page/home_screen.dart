@@ -70,6 +70,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (result != null && mounted) {
         setState(() {
           _pdfPath = result; // Update _pdfPath with the new saved file path
+          _imagePath = null;
         });
       }
     } else {

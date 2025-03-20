@@ -205,14 +205,6 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
     }
   }
 
-  void _validateAndUpdateSize(double newWidth, double newHeight) {
-    setState(() {
-      _currentWidth = newWidth.clamp(50, _screenWidthInPixels / _imageZoomLevel);
-      _currentHeight = newHeight.clamp(50, _screenHeightInPixels / _imageZoomLevel);
-      widget.onSizeChanged(_currentWidth, _currentHeight);
-    });
-  }
-
   @override
   Widget build(BuildContext context) {
     _screenWidthInPixels = MediaQuery.of(context).size.width;
