@@ -31,10 +31,11 @@ class PDFViewerScreen extends StatefulWidget {
 }
 
 class _PDFViewerScreenState extends State<PDFViewerScreen> {
+  final GlobalKey _pdfViewKey = GlobalKey();
   late Offset _currentPosition;
   late double _currentWidth;
   late double _currentHeight;
-  double _imageZoomLevel = 1.0; // Biến để theo dõi mức zoom của hình ảnh
+  double _imageZoomLevel = 1.0;
   int _currentPage = 1;
   int _totalPages = 1;
   bool _isSaving = false;
@@ -43,8 +44,10 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
 
   double _pdfWidthInPoints = 0;
   double _pdfHeightInPoints = 0;
-  double _screenWidthInPixels = 0;
-  double _screenHeightInPixels = 0;
+  double _pdfViewWidthInPixels = 0;
+  double _pdfViewHeightInPixels = 0;
+  double _pdfContentWidthInPixels = 0; 
+  double _pdfContentHeightInPixels = 0; 
 
   @override
   void initState() {
@@ -53,8 +56,10 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
     _currentWidth = widget.imageWidth;
     _currentHeight = widget.imageHeight;
     _initialize();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _updatePdfViewSize());
   }
 
+// Asynchronously initialize the PDF viewer by loading page count and dimensions
   Future<void> _initialize() async {
     try {
       await Future.wait([
@@ -71,6 +76,7 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
     }
   }
 
+// Update the total number of pages in the PDF
   Future<void> _updateTotalPages() async {
     try {
       final pdfFile = File(widget.filePath);
@@ -87,6 +93,29 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
     }
   }
 
+// Update the size of the PDF view and calculate the actual content dimensions
+  void _updatePdfViewSize() {
+    final RenderBox? renderBox = _pdfViewKey.currentContext?.findRenderObject() as RenderBox?;
+    if (renderBox != null && mounted) {
+      setState(() {
+        _pdfViewWidthInPixels = renderBox.size.width;
+        _pdfViewHeightInPixels = renderBox.size.height;
+
+        final pdfAspectRatio = _pdfWidthInPoints / _pdfHeightInPoints;
+        final viewAspectRatio = _pdfViewWidthInPixels / _pdfViewHeightInPixels;
+
+        if (pdfAspectRatio > viewAspectRatio) {
+          _pdfContentWidthInPixels = _pdfViewWidthInPixels;
+          _pdfContentHeightInPixels = _pdfViewWidthInPixels / pdfAspectRatio;
+        } else {
+          _pdfContentHeightInPixels = _pdfViewHeightInPixels;
+          _pdfContentWidthInPixels = _pdfViewHeightInPixels * pdfAspectRatio;
+        }
+      });
+    }
+  }
+
+// Initialize the dimensions (width and height) of the PDF in points
   Future<void> _initializePdfDimensions() async {
     try {
       final pdfFile = File(widget.filePath);
@@ -103,27 +132,31 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
     }
   }
 
+// Convert Flutter screen coordinates to PDF coordinates
   Offset _convertToPdfCoordinates(Offset flutterPosition) {
-    if (_screenWidthInPixels == 0 || _screenHeightInPixels == 0) {
+    if (_pdfViewWidthInPixels == 0 || _pdfViewHeightInPixels == 0) {
       return flutterPosition;
     }
+    final scaleX = _pdfWidthInPoints / _pdfContentWidthInPixels;
+    final scaleY = _pdfHeightInPoints / _pdfContentHeightInPixels;
 
-    final scaleX = _pdfWidthInPoints / _screenWidthInPixels;
-    final scaleY = _pdfHeightInPoints / _screenHeightInPixels;
+    final pdfContentTopOffset = (_pdfViewHeightInPixels - _pdfContentHeightInPixels) / 2;
+    final adjustedY = flutterPosition.dy - pdfContentTopOffset;
 
     final double pdfX = (flutterPosition.dx * scaleX).clamp(0, _pdfWidthInPoints);
-    final double pdfY = (_pdfHeightInPoints - (flutterPosition.dy * scaleY)).clamp(0, _pdfHeightInPoints);
+    final double pdfY = (_pdfHeightInPoints - (adjustedY * scaleY)).clamp(0, _pdfHeightInPoints);
     return Offset(pdfX, pdfY);
   }
 
+// Save the modified PDF with the overlaid image
   Size _convertToPdfSize(double width, double height) {
     const double dpiFactor = 1.75;
-    // Áp dụng zoom level vào kích thước khi lưu
     final double pdfWidth = (width * dpiFactor * _imageZoomLevel).clamp(50, _pdfWidthInPoints);
     final double pdfHeight = (height * dpiFactor * _imageZoomLevel).clamp(50, _pdfHeightInPoints);
     return Size(pdfWidth, pdfHeight);
   }
 
+// Save the modified PDF with the overlaid image
   Future<void> _savePDF() async {
     if (widget.imagePath == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -162,8 +195,8 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
                   pw.Image(pw.MemoryImage(pageBytes)),
                   if (context.pageNumber == _currentPage)
                     pw.Positioned(
-                    left: pdfPosition.dx + (35 * _imageZoomLevel),
-                      bottom: pdfPosition.dy - pdfSize.height - (12 * _imageZoomLevel),
+                      left: pdfPosition.dx + (35 * _imageZoomLevel),
+                      bottom: pdfPosition.dy - pdfSize.height,
                       child: pw.Image(
                         overlayImage,
                         width: pdfSize.width,
@@ -207,11 +240,6 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
 
   @override
   Widget build(BuildContext context) {
-    _screenWidthInPixels = MediaQuery.of(context).size.width;
-    _screenHeightInPixels = MediaQuery.of(context).size.height -
-        AppBar().preferredSize.height -
-        MediaQuery.of(context).padding.top;
-
     return Scaffold(
       appBar: AppBar(
         title: const Text("View and Edit PDF"),
@@ -232,7 +260,7 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
             icon: const Icon(Icons.zoom_in),
             onPressed: () {
               setState(() {
-                _imageZoomLevel = (_imageZoomLevel + 0.2).clamp(0.2, 2); // Zoom in
+                _imageZoomLevel = (_imageZoomLevel + 0.2).clamp(0.2, 2);
               });
             },
           ),
@@ -240,7 +268,7 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
             icon: const Icon(Icons.zoom_out),
             onPressed: () {
               setState(() {
-                _imageZoomLevel = (_imageZoomLevel - 0.2).clamp(0.2, 2); // Zoom out
+                _imageZoomLevel = (_imageZoomLevel - 0.2).clamp(0.2, 2);
               });
             },
           ),
@@ -262,6 +290,7 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
           : Stack(
               children: [
                 PDFView(
+                  key: _pdfViewKey,
                   filePath: widget.filePath,
                   swipeHorizontal: false,
                   fitPolicy: FitPolicy.BOTH,
@@ -270,6 +299,7 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
                   autoSpacing: true,
                   onViewCreated: (PDFViewController controller) {
                     _pdfController = controller;
+                    WidgetsBinding.instance.addPostFrameCallback((_) => _updatePdfViewSize());
                   },
                   onPageChanged: (int? page, int? total) {
                     if (page != null) {
@@ -298,7 +328,7 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
                             height: _currentHeight * _imageZoomLevel,
                           ),
                         ),
-                        childWhenDragging: Container(),
+                        childWhenDragging: Container(), // Đã sửa lại từ lỗi cú pháp
                         onDragEnd: (details) {
                           final renderBox = context.findRenderObject() as RenderBox?;
                           final offset = renderBox?.globalToLocal(details.offset) ?? details.offset;
@@ -307,10 +337,14 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
                           final statusBarHeight = MediaQuery.of(context).padding.top;
                           final totalOffset = appBarHeight + statusBarHeight;
 
+                          // Tính toán vùng nội dung PDF để giới hạn kéo thả
+                          final pdfContentTopOffset = (_pdfViewHeightInPixels - _pdfContentHeightInPixels) / 2;
+                          final pdfContentBottomOffset = pdfContentTopOffset + _pdfContentHeightInPixels;
+
                           setState(() {
                             _currentPosition = Offset(
-                              offset.dx.clamp(0, _screenWidthInPixels - (_currentWidth * _imageZoomLevel)),
-                              (offset.dy - totalOffset).clamp(0, _screenHeightInPixels - (_currentHeight * _imageZoomLevel)),
+                              offset.dx.clamp(0, _pdfContentWidthInPixels - (_currentWidth * _imageZoomLevel)),
+                              (offset.dy - totalOffset).clamp(pdfContentTopOffset, pdfContentBottomOffset - (_currentHeight * _imageZoomLevel)),
                             );
                             widget.onPositionChanged(_currentPosition);
                           });
