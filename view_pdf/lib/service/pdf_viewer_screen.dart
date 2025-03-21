@@ -148,7 +148,7 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
     return Offset(pdfX, pdfY);
   }
 
-// Save the modified PDF with the overlaid image
+// Convert image size from pixels to PDF points, adjusting for zoom and DPI
   Size _convertToPdfSize(double width, double height) {
     const double dpiFactor = 1.75;
     final double pdfWidth = (width * dpiFactor * _imageZoomLevel).clamp(50, _pdfWidthInPoints);
@@ -238,6 +238,7 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
     }
   }
 
+//UI
   @override
   Widget build(BuildContext context) {
     return Scaffold(
