@@ -113,43 +113,160 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      appBar: AppBar(title: Text('PDF Editor')),
-      body: Center(
-        child: SingleChildScrollView(
-          child: Column(
-            mainAxisAlignment: MainAxisAlignment.center,
-            children: [
-              ElevatedButton(
-                onPressed: _isProcessing ? null : _pickPDF,
-                child: Text('Chọn file PDF'),
-              ),
-              if (_pdfPath != null)
-                Padding(
-                  padding: const EdgeInsets.all(8.0),
-                  child: Text('PDF: ${_pdfPath!.split('/').last}'),
+      appBar: AppBar(
+        title: Text(
+          'PDF Editor',
+          style: TextStyle(fontWeight: FontWeight.bold),
+        ),
+        backgroundColor: Colors.teal,
+        elevation: 0,
+        centerTitle: true,
+      ),
+      body: Container(
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Colors.teal.shade50, Colors.white],
+          ),
+        ),
+        child: Center(
+          child: SingleChildScrollView(
+            padding: EdgeInsets.symmetric(horizontal: 16.0, vertical: 24.0),
+            child: Column(
+              mainAxisAlignment: MainAxisAlignment.center,
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                // Welcome Header
+                Text(
+                  'Chỉnh sửa PDF dễ dàng',
+                  style: TextStyle(
+                    fontSize: 24,
+                    fontWeight: FontWeight.bold,
+                    color: Colors.teal.shade900,
+                  ),
+                  textAlign: TextAlign.center,
                 ),
-              ElevatedButton(
-                onPressed: _isProcessing ? null : _pickImage,
-                child: Text('Chọn ảnh'),
-              ),
-              ElevatedButton(
-                onPressed: _isProcessing ? null : _drawSignature,
-                child: Text('Vẽ chữ ký'), // Thêm nút vẽ chữ ký
-              ),
-              if (_imagePath != null)
-                Padding(
-                  padding: const EdgeInsets.all(8.0),
-                  child: Text('Ảnh/Chữ ký: ${_imagePath!.split('/').last}'),
+                SizedBox(height: 8),
+                Text(
+                  'Chọn tệp, thêm chữ ký hoặc hình ảnh, và xem trước PDF.',
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: Colors.teal.shade700,
+                  ),
+                  textAlign: TextAlign.center,
                 ),
-              ElevatedButton(
-                onPressed: _isProcessing ? null : _viewPDF,
-                child: Text('Xem PDF'),
-              ),
-              ElevatedButton(
-                onPressed: _isProcessing ? null : _openPDF,
-                child: Text('Mở file PDF'),
-              ),
-            ],
+                SizedBox(height: 32),
+
+                // PDF Button
+                _buildActionCard(
+                  icon: Icons.picture_as_pdf,
+                  title: 'Chọn file PDF',
+                  subtitle: _pdfPath != null
+                      ? _pdfPath!.split('/').last
+                      : 'Chưa chọn tệp PDF',
+                  onTap: _isProcessing ? null : _pickPDF,
+                  color: Colors.teal,
+                ),
+
+                // Image Button
+                _buildActionCard(
+                  icon: Icons.image,
+                  title: 'Chọn ảnh',
+                  subtitle: _imagePath != null
+                      ? _imagePath!.split('/').last
+                      : 'Chưa chọn hình ảnh',
+                  onTap: _isProcessing ? null : _pickImage,
+                  color: Colors.blue,
+                ),
+
+                // Signature Button
+                _buildActionCard(
+                  icon: Icons.edit,
+                  title: 'Vẽ chữ ký',
+                  subtitle: _imagePath != null && _imagePath!.contains('signature')
+                      ? 'Chữ ký đã được vẽ'
+                      : 'Tạo chữ ký mới',
+                  onTap: _isProcessing ? null : _drawSignature,
+                  color: Colors.purple,
+                ),
+
+                // View PDF Button
+                _buildActionCard(
+                  icon: Icons.visibility,
+                  title: 'Xem PDF',
+                  subtitle: 'Xem và chỉnh sửa PDF với hình ảnh hoặc chữ ký',
+                  onTap: _isProcessing ? null : _viewPDF,
+                  color: Colors.orange,
+                ),
+
+                // Open PDF Button
+                _buildActionCard(
+                  icon: Icons.open_in_new,
+                  title: 'Mở file PDF',
+                  subtitle: 'Mở PDF trong ứng dụng mặc định',
+                  onTap: _isProcessing ? null : _openPDF,
+                  color: Colors.green,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _buildActionCard({
+    required IconData icon,
+    required String title,
+    required String subtitle,
+    required VoidCallback? onTap,
+    required Color color,
+  }) {
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 16.0),
+      child: Card(
+        elevation: 4,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+        child: InkWell(
+          onTap: onTap,
+          borderRadius: BorderRadius.circular(12),
+          child: Padding(
+            padding: const EdgeInsets.all(16.0),
+            child: Row(
+              children: [
+                CircleAvatar(
+                  backgroundColor: color.withOpacity(0.1),
+                  child: Icon(icon, color: color, size: 28),
+                ),
+                SizedBox(width: 16),
+                Expanded(
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      Text(
+                        title,
+                        style: TextStyle(
+                          fontSize: 18,
+                          fontWeight: FontWeight.w600,
+                          color: Colors.teal.shade900,
+                        ),
+                      ),
+                      SizedBox(height: 4),
+                      Text(
+                        subtitle,
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: Colors.grey.shade600,
+                        ),
+                        overflow: TextOverflow.ellipsis,
+                      ),
+                    ],
+                  ),
+                ),
+                Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey.shade400),
+              ],
+            ),
           ),
         ),
       ),
