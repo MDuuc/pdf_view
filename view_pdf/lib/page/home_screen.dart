@@ -2,6 +2,7 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:open_file/open_file.dart';
+import 'package:view_pdf/page/signature_pad.dart';
 import 'package:view_pdf/service/pdf_viewer_screen.dart';
 
 class HomeScreen extends StatefulWidget {
@@ -12,9 +13,9 @@ class HomeScreen extends StatefulWidget {
 class _HomeScreenState extends State<HomeScreen> {
   String? _pdfPath;
   String? _imagePath;
-  Offset _imagePosition = Offset(50, 50); // Default image position
-  double _imageWidth = 100; // Default image width
-  double _imageHeight = 100; // Default image height
+  Offset _imagePosition = Offset(50, 50);
+  double _imageWidth = 100;
+  double _imageHeight = 100;
   bool _isProcessing = false;
 
   // Choose file PDF from device
@@ -43,6 +44,24 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
+  // Open SignaturePad to draw signature
+  Future<void> _drawSignature() async {
+    Navigator.push(
+      context,
+      MaterialPageRoute(
+        builder: (context) => SignaturePad(
+          onSignatureSaved: (signaturePath) {
+            if (mounted) {
+              setState(() {
+                _imagePath = signaturePath; // Use signature as image
+              });
+            }
+          },
+        ),
+      ),
+    );
+  }
+
   // View PDF file with overlaid image and update _pdfPath if saved
   void _viewPDF() async {
     if (_pdfPath != null) {
@@ -69,7 +88,7 @@ class _HomeScreenState extends State<HomeScreen> {
       );
       if (result != null && mounted) {
         setState(() {
-          _pdfPath = result; // Update _pdfPath with the new saved file path
+          _pdfPath = result;
           _imagePath = null;
         });
       }
@@ -80,7 +99,7 @@ class _HomeScreenState extends State<HomeScreen> {
     }
   }
 
-  // Open PDF files in the program's default view (will open the latest _pdfPath)
+  // Open PDF files in the program's default view
   void _openPDF() {
     if (_pdfPath != null) {
       OpenFile.open(_pdfPath!);
@@ -113,10 +132,14 @@ class _HomeScreenState extends State<HomeScreen> {
                 onPressed: _isProcessing ? null : _pickImage,
                 child: Text('Chọn ảnh'),
               ),
+              ElevatedButton(
+                onPressed: _isProcessing ? null : _drawSignature,
+                child: Text('Vẽ chữ ký'), // Thêm nút vẽ chữ ký
+              ),
               if (_imagePath != null)
                 Padding(
                   padding: const EdgeInsets.all(8.0),
-                  child: Text('Ảnh: ${_imagePath!.split('/').last}'),
+                  child: Text('Ảnh/Chữ ký: ${_imagePath!.split('/').last}'),
                 ),
               ElevatedButton(
                 onPressed: _isProcessing ? null : _viewPDF,

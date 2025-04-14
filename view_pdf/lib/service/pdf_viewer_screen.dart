@@ -46,8 +46,8 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
   double _pdfHeightInPoints = 0;
   double _pdfViewWidthInPixels = 0;
   double _pdfViewHeightInPixels = 0;
-  double _pdfContentWidthInPixels = 0; 
-  double _pdfContentHeightInPixels = 0; 
+  double _pdfContentWidthInPixels = 0;
+  double _pdfContentHeightInPixels = 0;
 
   @override
   void initState() {
@@ -59,7 +59,7 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
     WidgetsBinding.instance.addPostFrameCallback((_) => _updatePdfViewSize());
   }
 
-// Asynchronously initialize the PDF viewer by loading page count and dimensions
+  // Asynchronously initialize the PDF viewer by loading page count and dimensions
   Future<void> _initialize() async {
     try {
       await Future.wait([
@@ -76,7 +76,7 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
     }
   }
 
-// Update the total number of pages in the PDF
+  // Update the total number of pages in the PDF
   Future<void> _updateTotalPages() async {
     try {
       final pdfFile = File(widget.filePath);
@@ -93,7 +93,7 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
     }
   }
 
-// Update the size of the PDF view and calculate the actual content dimensions
+  // Update the size of the PDF view and calculate the actual content dimensions
   void _updatePdfViewSize() {
     final RenderBox? renderBox = _pdfViewKey.currentContext?.findRenderObject() as RenderBox?;
     if (renderBox != null && mounted) {
@@ -115,7 +115,7 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
     }
   }
 
-// Initialize the dimensions (width and height) of the PDF in points
+  // Initialize the dimensions (width and height) of the PDF in points
   Future<void> _initializePdfDimensions() async {
     try {
       final pdfFile = File(widget.filePath);
@@ -132,7 +132,7 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
     }
   }
 
-// Convert Flutter screen coordinates to PDF coordinates
+  // Convert Flutter screen coordinates to PDF coordinates
   Offset _convertToPdfCoordinates(Offset flutterPosition) {
     if (_pdfViewWidthInPixels == 0 || _pdfViewHeightInPixels == 0) {
       return flutterPosition;
@@ -148,15 +148,15 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
     return Offset(pdfX, pdfY);
   }
 
-// Convert image size from pixels to PDF points, adjusting for zoom and DPI
+  // Convert image size from pixels to PDF points, adjusting for zoom and DPI
   Size _convertToPdfSize(double width, double height) {
-    const double dpiFactor = 1.75;
+    const double dpiFactor = 1.5;
     final double pdfWidth = (width * dpiFactor * _imageZoomLevel).clamp(50, _pdfWidthInPoints);
     final double pdfHeight = (height * dpiFactor * _imageZoomLevel).clamp(50, _pdfHeightInPoints);
     return Size(pdfWidth, pdfHeight);
   }
 
-// Save the modified PDF with the overlaid image
+  // Save the modified PDF with the overlaid image
   Future<void> _savePDF() async {
     if (widget.imagePath == null) {
       ScaffoldMessenger.of(context).showSnackBar(
@@ -238,7 +238,6 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
     }
   }
 
-//UI
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -323,13 +322,25 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
                       child: Draggable(
                         feedback: Opacity(
                           opacity: 0.7,
-                          child: Image.file(
-                            File(widget.imagePath!),
+                          child: Container(
                             width: _currentWidth * _imageZoomLevel,
                             height: _currentHeight * _imageZoomLevel,
+                            decoration: BoxDecoration(
+                              border: Border.all(
+                                color: Colors.blueAccent,
+                                width: 2.0,
+                              ),
+                              borderRadius: BorderRadius.circular(8.0),
+                            ),
+                            child: Image.file(
+                              File(widget.imagePath!),
+                              width: _currentWidth * _imageZoomLevel,
+                              height: _currentHeight * _imageZoomLevel,
+                              fit: BoxFit.contain,
+                            ),
                           ),
                         ),
-                        childWhenDragging: Container(), // Đã sửa lại từ lỗi cú pháp
+                        childWhenDragging: Container(),
                         onDragEnd: (details) {
                           final renderBox = context.findRenderObject() as RenderBox?;
                           final offset = renderBox?.globalToLocal(details.offset) ?? details.offset;
@@ -350,10 +361,33 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
                             widget.onPositionChanged(_currentPosition);
                           });
                         },
-                        child: Image.file(
-                          File(widget.imagePath!),
+                        child: Container(
                           width: _currentWidth * _imageZoomLevel,
                           height: _currentHeight * _imageZoomLevel,
+                          decoration: BoxDecoration(
+                            border: Border.all(
+                              color: Colors.blueAccent,
+                              width: 2.0,
+                            ),
+                            borderRadius: BorderRadius.circular(8.0),
+                          ),
+                          child: ClipRect(
+                            child: Image.file(
+                              File(widget.imagePath!),
+                              width: _currentWidth * _imageZoomLevel,
+                              height: _currentHeight * _imageZoomLevel,
+                              fit: BoxFit.contain,
+                              errorBuilder: (context, error, stackTrace) {
+                                return Center(
+                                  child: Text(
+                                    'Error loading image: $error',
+                                    style: TextStyle(color: Colors.red),
+                                    textAlign: TextAlign.center,
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
                         ),
                       ),
                     ),
