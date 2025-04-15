@@ -3,8 +3,8 @@ import 'package:flutter/material.dart';
 import 'dart:ui' as ui;
 import 'package:path_provider/path_provider.dart';
 import 'dart:io';
+import 'dart:convert';
 
-// Custom painter class for drawing the signature
 class SignaturePainter extends CustomPainter {
   final List<Offset?> points;
 
@@ -41,73 +41,131 @@ class _SignaturePadState extends State<SignaturePad> {
   List<Offset?> points = [];
   bool _isSaving = false;
 
-  Future<void> _saveSignature() async {
-    if (points.isNotEmpty) {
-      // Calculate signature frame
-      double minX = double.infinity;
-      double minY = double.infinity;
-      double maxX = -double.infinity;
-      double maxY = -double.infinity;
+  @override
+  void initState() {
+    super.initState();
+    _loadPoints();
+  }
 
-      for (var point in points) {
-        if (point != null) {
-          if (point.dx < minX) minX = point.dx;
-          if (point.dy < minY) minY = point.dy;
-          if (point.dx > maxX) maxX = point.dx;
-          if (point.dy > maxY) maxY = point.dy;
-        }
+  // Load list of points from JSON file
+  Future<void> _loadPoints() async {
+    try {
+      final tempDir = await getTemporaryDirectory();
+      final pointsFile = File('${tempDir.path}/signature_points.json');
+      if (await pointsFile.exists()) {
+        final jsonString = await pointsFile.readAsString();
+        final List<dynamic> jsonData = jsonDecode(jsonString);
+        setState(() {
+          points = jsonData.map((item) {
+            if (item == null) return null;
+            return Offset(item['dx'], item['dy']);
+          }).toList();
+        });
+        print("Loaded points: ${points.length}");
       }
+    } catch (e) {
+      print("Error loading points: $e");
+    }
+  }
 
-      if (minX.isFinite && minY.isFinite && maxX.isFinite && maxY.isFinite) {
-        double bboxWidth = maxX - minX;
-        double bboxHeight = maxY - minY;
+  // Save the points list to a JSON file
+  Future<void> _savePoints() async {
+    try {
+      final tempDir = await getTemporaryDirectory();
+      final pointsFile = File('${tempDir.path}/signature_points.json');
+      final jsonData = points.map((point) {
+        if (point == null) return null;
+        return {'dx': point.dx, 'dy': point.dy};
+      }).toList();
+      await pointsFile.writeAsString(jsonEncode(jsonData));
+      print("Saved points to: ${pointsFile.path}");
+    } catch (e) {
+      print("Error saving points: $e");
+    }
+  }
 
-        // Canvas size and padding
-        const double canvasWidth = 300;
-        const double canvasHeight = 200;
-        const double padding = 10;
+  Future<void> _saveSignature() async {
+    setState(() {
+      _isSaving = true;
+    });
 
-      // Calculate the shrink ratio so that the signature fits the canvas (with padding)
-        double scale = min((canvasWidth - 2 * padding) / bboxWidth, (canvasHeight - 2 * padding) / bboxHeight);
+    try {
+      if (points.isNotEmpty) {
+        // Calculate signature frame
+        double minX = double.infinity;
+        double minY = double.infinity;
+        double maxX = -double.infinity;
+        double maxY = -double.infinity;
 
-        // Calculate offset to center signature
-        double offsetX = (canvasWidth - bboxWidth * scale) / 2;
-        double offsetY = (canvasHeight - bboxHeight * scale) / 2;
+        for (var point in points) {
+          if (point != null) {
+            if (point.dx < minX) minX = point.dx;
+            if (point.dy < minY) minY = point.dy;
+            if (point.dx > maxX) maxX = point.dx;
+            if (point.dy > maxY) maxY = point.dy;
+          }
+        }
 
-        // Transform the points
-        List<Offset?> transformedPoints = points.map((point) {
-          if (point == null) return null;
-          double x = (point.dx - minX) * scale + offsetX;
-          double y = (point.dy - minY) * scale + offsetY;
-          return Offset(x, y);
-        }).toList();
+        if (minX.isFinite && minY.isFinite && maxX.isFinite && maxY.isFinite) {
+          double bboxWidth = maxX - minX;
+          double bboxHeight = maxY - minY;
 
-        // Draw the signature on the canvas with transformed points
-        final recorder = ui.PictureRecorder();
-        final canvas = Canvas(recorder, Rect.fromLTWH(0, 0, canvasWidth, canvasHeight));
-        SignaturePainter(transformedPoints).paint(canvas, Size(canvasWidth, canvasHeight));
-        final picture = recorder.endRecording();
-        final img = await picture.toImage(canvasWidth.toInt(), canvasHeight.toInt());
-        final byteData = await img.toByteData(format: ui.ImageByteFormat.png);
-        final buffer = byteData!.buffer.asUint8List();
+          // Canvas size and padding
+          const double canvasWidth = 300;
+          const double canvasHeight = 200;
+          const double padding = 10;
 
-        // Save file PNG
-        final tempDir = await getTemporaryDirectory();
-        final signaturePath = '${tempDir.path}/signature.png';
-        await File(signaturePath).writeAsBytes(buffer);
+          // Calculate the shrink ratio so that the signature fits the canvas (with padding)
+          double scale = min(
+              (canvasWidth - 2 * padding) / bboxWidth, (canvasHeight - 2 * padding) / bboxHeight);
 
-        print("Saved signature at: $signaturePath");
-        print("File size: ${File(signaturePath).lengthSync()} bytes");
+          // Calculate offset to center signature
+          double offsetX = (canvasWidth - bboxWidth * scale) / 2;
+          double offsetY = (canvasHeight - bboxHeight * scale) / 2;
 
-        widget.onSignatureSaved(signaturePath);
-        Navigator.pop(context);
+          // Transform the points
+          List<Offset?> transformedPoints = points.map((point) {
+            if (point == null) return null;
+            double x = (point.dx - minX) * scale + offsetX;
+            double y = (point.dy - minY) * scale + offsetY;
+            return Offset(x, y);
+          }).toList();
+
+          // Draw the signature on the canvas with transformed points
+          final recorder = ui.PictureRecorder();
+          final canvas = Canvas(recorder, Rect.fromLTWH(0, 0, canvasWidth, canvasHeight));
+          SignaturePainter(transformedPoints).paint(canvas, Size(canvasWidth, canvasHeight));
+          final picture = recorder.endRecording();
+          final img = await picture.toImage(canvasWidth.toInt(), canvasHeight.toInt());
+          final byteData = await img.toByteData(format: ui.ImageByteFormat.png);
+          final buffer = byteData!.buffer.asUint8List();
+
+          // Save file PNG with a random name
+          final tempDir = await getTemporaryDirectory();
+          final randomString = DateTime.now().millisecondsSinceEpoch.toString(); // Generate random string from timestamp
+          final signaturePath = '${tempDir.path}/signature_$randomString.png';
+          await File(signaturePath).writeAsBytes(buffer);
+
+          // Save points to JSON
+          await _savePoints();
+
+          print("Saved signature at: $signaturePath");
+          print("File size: ${File(signaturePath).lengthSync()} bytes");
+
+          widget.onSignatureSaved(signaturePath);
+          Navigator.pop(context);
+        } else {
+          print("No valid points to save");
+          _showSnackBar('Please draw a signature before saving');
+        }
       } else {
-        print("No valid points to save");
+        print("Points list is empty");
         _showSnackBar('Please draw a signature before saving');
       }
-    } else {
-      print("Points list is empty");
-      _showSnackBar('Please draw a signature before saving');
+    } finally {
+      setState(() {
+        _isSaving = false;
+      });
     }
   }
 
@@ -143,10 +201,16 @@ class _SignaturePadState extends State<SignaturePad> {
             icon: Icon(Icons.delete),
             onPressed: points.isEmpty
                 ? null
-                : () {
+                : () async {
                     setState(() {
                       points.clear();
                     });
+                    // Delete saved points file
+                    final tempDir = await getTemporaryDirectory();
+                    final pointsFile = File('${tempDir.path}/signature_points.json');
+                    if (await pointsFile.exists()) {
+                      await pointsFile.delete();
+                    }
                     _showSnackBar('Signature cleared');
                   },
             tooltip: 'Clear Signature',
@@ -194,12 +258,11 @@ class _SignaturePadState extends State<SignaturePad> {
                         setState(() {
                           RenderBox renderBox = context.findRenderObject() as RenderBox;
                           Offset localPosition = renderBox.globalToLocal(details.globalPosition);
-                          //change Postion of drawing
-                          double appBarHeight = AppBar().preferredSize.height; 
-                          double statusBarHeight = MediaQuery.of(context).padding.top; 
-                          double paddingTop = 16; 
+                          double appBarHeight = AppBar().preferredSize.height;
+                          double statusBarHeight = MediaQuery.of(context).padding.top;
+                          double paddingTop = 16;
                           localPosition = Offset(
-                            localPosition.dx - 16, 
+                            localPosition.dx - 16,
                             localPosition.dy - (appBarHeight + statusBarHeight + paddingTop),
                           );
                           points.add(localPosition);
@@ -226,13 +289,19 @@ class _SignaturePadState extends State<SignaturePad> {
                   ElevatedButton.icon(
                     onPressed: points.isEmpty
                         ? null
-                        : () {
+                        : () async {
                             setState(() {
                               points.clear();
                             });
+                            // Delete saved points file
+                            final tempDir = await getTemporaryDirectory();
+                            final pointsFile = File('${tempDir.path}/signature_points.json');
+                            if (await pointsFile.exists()) {
+                              await pointsFile.delete();
+                            }
                             _showSnackBar('Signature cleared');
                           },
-                    icon: Icon(Icons.clear, size: 20, color: Colors.white,),
+                    icon: Icon(Icons.clear, size: 20, color: Colors.white),
                     label: Text('Clear'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.red.shade600,
@@ -254,7 +323,7 @@ class _SignaturePadState extends State<SignaturePad> {
                               color: Colors.white,
                             ),
                           )
-                        : Icon(Icons.save, size: 20, color: Colors.white,),
+                        : Icon(Icons.save, size: 20, color: Colors.white),
                     label: Text('Save'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.teal.shade700,

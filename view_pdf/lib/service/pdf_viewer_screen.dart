@@ -175,6 +175,7 @@ Future<void> _savePDF() async {
     final pdfSize = _convertToPdfSize(_currentWidth, _currentHeight);
     double appBarHeight = AppBar().preferredSize.height;
     double padding_horizontal = 12;
+    double padding_veritcal = 12;
 
     // Determine image file type
     final isJpg = widget.imagePath!.toLowerCase().endsWith('.jpg') ||
@@ -202,7 +203,7 @@ Future<void> _savePDF() async {
                         : pdfPosition.dx + _imageZoomLevel-padding_horizontal*2,
                     bottom: isJpg
                         ? pdfPosition.dy - pdfSize.height + appBarHeight / 2
-                        : pdfPosition.dy - pdfSize.height + appBarHeight,
+                        : pdfPosition.dy - pdfSize.height + appBarHeight -padding_veritcal,
                     child: pw.Image(
                       overlayImage,
                       width: pdfSize.width,
