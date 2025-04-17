@@ -1,6 +1,5 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:flutter_pdfview/flutter_pdfview.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:path_provider/path_provider.dart';
@@ -31,42 +30,40 @@ class PDFViewerScreen extends StatefulWidget {
 }
 
 class _PDFViewerScreenState extends State<PDFViewerScreen> {
-  final GlobalKey _pdfViewKey = GlobalKey();
-  late Offset _currentPosition;
+  final GlobalKey _listViewKey = GlobalKey();
+  late ValueNotifier<Offset> _positionNotifier;
+  late ValueNotifier<double> _zoomNotifier;
+  late ValueNotifier<int> _pageIndexNotifier;
   late double _currentWidth;
   late double _currentHeight;
-  double _imageZoomLevel = 1.0;
-  int _currentPage = 1;
+  int _currentPage = 0;
   int _totalPages = 1;
   bool _isSaving = false;
   bool _isLoading = true;
-  late PDFViewController _pdfController;
-
-  double _pdfWidthInPoints = 0;
-  double _pdfHeightInPoints = 0;
-  double _pdfViewWidthInPixels = 0;
-  double _pdfViewHeightInPixels = 0;
-  double _pdfContentWidthInPixels = 0;
-  double _pdfContentHeightInPixels = 0;
+  late px.PdfDocument _pdfDocument;
+  List<Size> _pageSizes = [];
+  List<GlobalKey> _pageKeys = [];
 
   @override
   void initState() {
     super.initState();
-    _currentPosition = widget.imagePosition;
+    _positionNotifier = ValueNotifier(widget.imagePosition);
+    _zoomNotifier = ValueNotifier(1.0);
+    _pageIndexNotifier = ValueNotifier(_currentPage);
     _currentWidth = widget.imageWidth;
     _currentHeight = widget.imageHeight;
     _initialize();
-    WidgetsBinding.instance.addPostFrameCallback((_) => _updatePdfViewSize());
   }
 
-  // Asynchronously initialize the PDF viewer
   Future<void> _initialize() async {
     try {
-      await Future.wait([
-        _updateTotalPages(),
-        _initializePdfDimensions(),
-      ]);
+      await _initializePdfDocument();
       setState(() => _isLoading = false);
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && _pageKeys.isNotEmpty && _pageKeys[1].currentContext != null) {
+          Scrollable.ensureVisible(_pageKeys[1].currentContext!);
+        }
+      });
     } catch (e) {
       if (mounted) {
         _showSnackBar('Error initializing PDF: $e');
@@ -74,174 +71,202 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
     }
   }
 
-  // Update the total number of pages in the PDF
-  Future<void> _updateTotalPages() async {
+  Future<void> _initializePdfDocument() async {
     try {
       final pdfFile = File(widget.filePath);
       if (!await pdfFile.exists()) {
         throw FileSystemException('PDF file not found');
       }
-      final px.PdfDocument pdfDocument = await px.PdfDocument.openFile(pdfFile.path);
-      setState(() {
-        _totalPages = pdfDocument.pagesCount;
-      });
-      await pdfDocument.close();
+      _pdfDocument = await px.PdfDocument.openFile(pdfFile.path);
+      _totalPages = _pdfDocument.pagesCount;
+      _pageSizes = [];
+      _pageKeys = List.generate(_totalPages, (_) => GlobalKey());
+      for (int i = 1; i <= _totalPages; i++) {
+        final page = await _pdfDocument.getPage(i);
+        _pageSizes.add(Size(page.width.toDouble(), page.height.toDouble()));
+        await page.close();
+      }
     } catch (e) {
       rethrow;
     }
   }
 
-  // Update the size of the PDF view
-  void _updatePdfViewSize() {
-    final RenderBox? renderBox = _pdfViewKey.currentContext?.findRenderObject() as RenderBox?;
-    if (renderBox != null && mounted) {
-      setState(() {
-        _pdfViewWidthInPixels = renderBox.size.width;
-        _pdfViewHeightInPixels = renderBox.size.height;
-
-        final pdfAspectRatio = _pdfWidthInPoints / _pdfHeightInPoints;
-        final viewAspectRatio = _pdfViewWidthInPixels / _pdfViewHeightInPixels;
-
-        if (pdfAspectRatio > viewAspectRatio) {
-          _pdfContentWidthInPixels = _pdfViewWidthInPixels;
-          _pdfContentHeightInPixels = _pdfViewWidthInPixels / pdfAspectRatio;
-        } else {
-          _pdfContentHeightInPixels = _pdfViewHeightInPixels;
-          _pdfContentWidthInPixels = _pdfViewHeightInPixels * pdfAspectRatio;
-        }
-      });
-    }
-  }
-
-  // Initialize PDF dimensions
-  Future<void> _initializePdfDimensions() async {
-    try {
-      final pdfFile = File(widget.filePath);
-      final px.PdfDocument pdfDocument = await px.PdfDocument.openFile(pdfFile.path);
-      final page = await pdfDocument.getPage(1);
-      setState(() {
-        _pdfWidthInPoints = page.width.toDouble();
-        _pdfHeightInPoints = page.height.toDouble();
-      });
-      await page.close();
-      await pdfDocument.close();
-    } catch (e) {
-      rethrow;
-    }
-  }
-
-  // Convert Flutter screen coordinates to PDF coordinates
-  Offset _convertToPdfCoordinates(Offset flutterPosition) {
-    if (_pdfViewWidthInPixels == 0 || _pdfViewHeightInPixels == 0) {
+  Offset _convertToPdfCoordinates(Offset flutterPosition, int pageIndex) {
+    if (_pageSizes.isEmpty || pageIndex < 0 || pageIndex >= _pageSizes.length) {
+      print('Invalid page index or empty page sizes: $pageIndex');
       return flutterPosition;
     }
-    final scaleX = _pdfWidthInPoints / _pdfContentWidthInPixels;
-    final scaleY = _pdfHeightInPoints / _pdfContentHeightInPixels;
 
-    final pdfContentTopOffset = (_pdfViewHeightInPixels - _pdfContentHeightInPixels) / 2;
-    final adjustedY = flutterPosition.dy - pdfContentTopOffset;
+    final pageSize = _pageSizes[pageIndex];
+    final context = _pageKeys[pageIndex].currentContext;
 
-    final double pdfX = (flutterPosition.dx * scaleX).clamp(0, _pdfWidthInPoints);
-    final double pdfY = (_pdfHeightInPoints - (adjustedY * scaleY)).clamp(0, _pdfHeightInPoints);
+    if (context == null) {
+      print('Context is null for page $pageIndex');
+      return flutterPosition;
+    }
+
+    RenderBox? renderBox;
+    try {
+      renderBox = context.findRenderObject() as RenderBox?;
+    } catch (e) {
+      print('Error getting renderObject for page $pageIndex: $e');
+      return flutterPosition;
+    }
+
+    if (renderBox == null) {
+      print('RenderBox not found for page $pageIndex');
+      return flutterPosition;
+    }
+
+    final pageSizeInPixels = renderBox.size;
+    final scaleX = pageSizeInPixels.width > 0 ? pageSize.width / pageSizeInPixels.width : 1.0;
+    final scaleY = pageSizeInPixels.height > 0 ? pageSize.height / pageSizeInPixels.height : 1.0;
+
+    final localPosition = renderBox.globalToLocal(flutterPosition);
+    final adjustedDy = localPosition.dy.clamp(0.0, pageSizeInPixels.height);
+    final double pdfX = (localPosition.dx * scaleX).clamp(0, pageSize.width);
+    final double pdfY = (pageSize.height - (adjustedDy * scaleY)).clamp(0, pageSize.height);
+
+    print('Page $pageIndex:');
+    print('  pageSize: $pageSize');
+    print('  pageSizeInPixels: $pageSizeInPixels');
+    print('  scaleX: $scaleX, scaleY: $scaleY');
+    print('  flutterPosition: $flutterPosition');
+    print('  localPosition: $localPosition');
+    print('  adjustedDy: $adjustedDy');
+    print('  pdfX: $pdfX, pdfY: $pdfY');
+
     return Offset(pdfX, pdfY);
   }
 
-  // Convert image size to PDF points
+  Offset _convertFromPdfToFlutterCoordinates(Offset pdfPosition, int pageIndex) {
+    if (_pageSizes.isEmpty || pageIndex < 0 || pageIndex >= _pageSizes.length) {
+      return pdfPosition;
+    }
+    final pageSize = _pageSizes[pageIndex];
+    final context = _pageKeys[pageIndex].currentContext;
+
+    if (context == null) {
+      return pdfPosition;
+    }
+
+    RenderBox? renderBox;
+    try {
+      renderBox = context.findRenderObject() as RenderBox?;
+    } catch (e) {
+      print('Error getting renderObject for page $pageIndex: $e');
+      return pdfPosition;
+    }
+
+    if (renderBox == null) {
+      return pdfPosition;
+    }
+
+    final pageSizeInPixels = renderBox.size;
+    final scaleX = pageSizeInPixels.width > 0 ? pageSize.width / pageSizeInPixels.width : 1.0;
+    final scaleY = pageSizeInPixels.height > 0 ? pageSize.height / pageSizeInPixels.height : 1.0;
+
+    final double flutterX = pdfPosition.dx / scaleX;
+    final double flutterY = ((pageSize.height - pdfPosition.dy) / scaleY).clamp(0, pageSizeInPixels.height);
+    return Offset(flutterX, flutterY);
+  }
+
   Size _convertToPdfSize(double width, double height) {
     const double dpiFactor = 1.5;
-    final double pdfWidth = (width * dpiFactor * _imageZoomLevel).clamp(50, _pdfWidthInPoints);
-    final double pdfHeight = (height * dpiFactor * _imageZoomLevel).clamp(50, _pdfHeightInPoints);
+    final double pdfWidth = (width * dpiFactor * _zoomNotifier.value).clamp(50, _pageSizes[_pageIndexNotifier.value].width);
+    final double pdfHeight = (height * dpiFactor * _zoomNotifier.value).clamp(50, _pageSizes[_pageIndexNotifier.value].height);
     return Size(pdfWidth, pdfHeight);
   }
 
-  // Save the modified PDF
-Future<void> _savePDF() async {
-  if (widget.imagePath == null) {
-    _showSnackBar('Please select an image to save');
-    return;
-  }
+  Future<void> _savePDF() async {
+    if (widget.imagePath == null) {
+      _showSnackBar('Please select an image to save');
+      return;
+    }
 
-  setState(() => _isSaving = true);
+    setState(() => _isSaving = true);
 
-  try {
-    final pdfFile = File(widget.filePath);
-    final px.PdfDocument pdfDocument = await px.PdfDocument.openFile(pdfFile.path);
-    final pdf = pw.Document();
+    try {
+      final pdf = pw.Document();
+      final imageBytes = await File(widget.imagePath!).readAsBytes();
+      final pw.MemoryImage overlayImage = pw.MemoryImage(imageBytes);
 
-    final imageBytes = await File(widget.imagePath!).readAsBytes();
-    final pw.MemoryImage overlayImage = pw.MemoryImage(imageBytes);
+      final pdfPosition = _convertToPdfCoordinates(_positionNotifier.value, _pageIndexNotifier.value);
+      final pdfSize = _convertToPdfSize(_currentWidth, _currentHeight);
+      final isJpg = widget.imagePath!.toLowerCase().endsWith('.jpg') ||
+          widget.imagePath!.toLowerCase().endsWith('.jpeg');
 
-    final pdfPosition = _convertToPdfCoordinates(_currentPosition);
-    final pdfSize = _convertToPdfSize(_currentWidth, _currentHeight);
-    double appBarHeight = AppBar().preferredSize.height;
-    double padding_horizontal = 12;
-    double padding_veritcal = 12;
+      print('Saving PDF: pdfPosition: $pdfPosition, pdfSize: $pdfSize, pageIndex: ${_pageIndexNotifier.value}');
 
-    // Determine image file type
-    final isJpg = widget.imagePath!.toLowerCase().endsWith('.jpg') ||
-                  widget.imagePath!.toLowerCase().endsWith('.jpeg');
+      for (int i = 1; i <= _totalPages; i++) {
+        final page = await _pdfDocument.getPage(i);
+        final pageImage = await page.render(
+          width: page.width,
+          height: page.height,
+        );
+        final pageBytes = pageImage!.bytes;
 
-    for (int i = 1; i <= pdfDocument.pagesCount; i++) {
-      final page = await pdfDocument.getPage(i);
-      final pageImage = await page.render(
-        width: page.width,
-        height: page.height,
-      );
-      final pageBytes = pageImage!.bytes;
-
-      pdf.addPage(
-        pw.Page(
-          pageFormat: PdfPageFormat(page.width, page.height),
-          build: (pw.Context context) {
-            return pw.Stack(
-              children: [
-                pw.Image(pw.MemoryImage(pageBytes)),
-                if (context.pageNumber == _currentPage)
-                  pw.Positioned(
-                    left: isJpg
-                        ? pdfPosition.dx + (20 * _imageZoomLevel)
-                        : pdfPosition.dx + _imageZoomLevel-padding_horizontal*2,
-                    bottom: isJpg
-                        ? pdfPosition.dy - pdfSize.height + appBarHeight / 2
-                        : pdfPosition.dy - pdfSize.height + appBarHeight -padding_veritcal,
-                    child: pw.Image(
-                      overlayImage,
-                      width: pdfSize.width,
-                      height: pdfSize.height,
+        pdf.addPage(
+          pw.Page(
+            pageFormat: PdfPageFormat(page.width, page.height),
+            build: (pw.Context context) {
+              return pw.Stack(
+                children: [
+                  pw.Image(pw.MemoryImage(pageBytes)),
+                  if (context.pageNumber == _pageIndexNotifier.value + 1)
+                    pw.Positioned(
+                      left: isJpg
+                          ? pdfPosition.dx + (20 * _zoomNotifier.value)
+                          : pdfPosition.dx + _zoomNotifier.value,
+                      bottom: pdfPosition.dy - pdfSize.height,
+                      child: pw.Image(
+                        overlayImage,
+                        width: pdfSize.width,
+                        height: pdfSize.height,
+                      ),
                     ),
-                  ),
-              ],
-            );
-          },
-        ),
-      );
-      await page.close();
-    }
+                ],
+              );
+            },
+          ),
+        );
+        await page.close();
+      }
 
-    final outputDir = await getApplicationDocumentsDirectory();
-    final newPdfPath =
-        "${outputDir.path}/edited_${DateTime.now().millisecondsSinceEpoch}.pdf";
-    final newPdfFile = File(newPdfPath);
-    await newPdfFile.writeAsBytes(await pdf.save());
+      final outputDir = await getApplicationDocumentsDirectory();
+      final newPdfPath =
+          "${outputDir.path}/edited_${DateTime.now().millisecondsSinceEpoch}.pdf";
+      final newPdfFile = File(newPdfPath);
+      await newPdfFile.writeAsBytes(await pdf.save());
 
-    if (mounted) {
-      _showSnackBar('PDF saved successfully');
-      Navigator.pop(context, newPdfPath);
-    }
-
-    await pdfDocument.close();
-  } catch (e) {
-    if (mounted) {
-      _showSnackBar('Error saving PDF: $e');
-    }
-  } finally {
-    if (mounted) {
-      setState(() => _isSaving = false);
+      if (mounted) {
+        _showSnackBar('PDF saved successfully');
+        Navigator.pushReplacement(
+          context,
+          MaterialPageRoute(
+            builder: (context) => PDFViewerScreen(
+              filePath: newPdfPath,
+              imagePath: widget.imagePath,
+              imagePosition: widget.imagePosition,
+              imageWidth: widget.imageWidth,
+              imageHeight: widget.imageHeight,
+              onPositionChanged: widget.onPositionChanged,
+              onSizeChanged: widget.onSizeChanged,
+            ),
+          ),
+        );
+      }
+    } catch (e) {
+      if (mounted) {
+        _showSnackBar('Error saving PDF: $e');
+      }
+    } finally {
+      if (mounted) {
+        setState(() => _isSaving = false);
+      }
     }
   }
-}
 
-  // Show snackbar with custom styling
   void _showSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -257,8 +282,16 @@ Future<void> _savePDF() async {
   }
 
   @override
+  void dispose() {
+    _pdfDocument.close();
+    _positionNotifier.dispose();
+    _zoomNotifier.dispose();
+    _pageIndexNotifier.dispose();
+    super.dispose();
+  }
+
+  @override
   Widget build(BuildContext context) {
-    double padding_horizontal =12;
     return Scaffold(
       appBar: AppBar(
         title: Text(
@@ -269,52 +302,20 @@ Future<void> _savePDF() async {
         elevation: 0,
         centerTitle: true,
         actions: [
-          // Page Navigation
-          IconButton(
-            icon: Icon(Icons.navigate_before),
-            onPressed: _currentPage > 1 ? () => _pdfController.setPage(_currentPage - 2) : null,
-            tooltip: 'Previous Page',
-          ),
-          Container(
-            padding: EdgeInsets.symmetric(horizontal: padding_horizontal, vertical: 8),
-            margin: EdgeInsets.symmetric(vertical: 8),
-            decoration: BoxDecoration(
-              color: Colors.teal.shade100,
-              borderRadius: BorderRadius.circular(12),
-            ),
-            child: Text(
-              '$_currentPage / $_totalPages',
-              style: TextStyle(
-                color: Colors.teal.shade900,
-                fontWeight: FontWeight.w600,
-              ),
-            ),
-          ),
-          IconButton(
-            icon: Icon(Icons.navigate_next),
-            onPressed: _currentPage < _totalPages ? () => _pdfController.setPage(_currentPage) : null,
-            tooltip: 'Next Page',
-          ),
-          // Zoom Controls
           IconButton(
             icon: Icon(Icons.zoom_in),
             onPressed: () {
-              setState(() {
-                _imageZoomLevel = (_imageZoomLevel + 0.2).clamp(0.2, 2);
-              });
+              _zoomNotifier.value = (_zoomNotifier.value + 0.2).clamp(0.2, 2);
             },
             tooltip: 'Zoom In',
           ),
           IconButton(
             icon: Icon(Icons.zoom_out),
             onPressed: () {
-              setState(() {
-                _imageZoomLevel = (_imageZoomLevel - 0.2).clamp(0.2, 2);
-              });
+              _zoomNotifier.value = (_zoomNotifier.value - 0.2).clamp(0.2, 2);
             },
             tooltip: 'Zoom Out',
           ),
-          // Save Button
           Padding(
             padding: const EdgeInsets.only(right: 8.0),
             child: ElevatedButton.icon(
@@ -328,7 +329,7 @@ Future<void> _savePDF() async {
                         color: Colors.white,
                       ),
                     )
-                  : Icon(Icons.save, size: 20, color: Colors.white,),
+                  : Icon(Icons.save, size: 20, color: Colors.white),
               label: Text('Save'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.teal.shade700,
@@ -362,119 +363,188 @@ Future<void> _savePDF() async {
                   ],
                 ),
               )
-            : Stack(
-                children: [
-                  // PDF Viewer
-                  Card(
-                    margin: EdgeInsets.all(16),
+            : ListView.builder(
+                key: _listViewKey,
+                itemCount: _totalPages,
+                itemBuilder: (context, index) {
+                  return Card(
+                    margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     elevation: 4,
                     shape: RoundedRectangleBorder(
                       borderRadius: BorderRadius.circular(12),
                     ),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(12),
-                      child: PDFView(
-                        key: _pdfViewKey,
-                        filePath: widget.filePath,
-                        swipeHorizontal: false,
-                        fitPolicy: FitPolicy.BOTH,
-                        pageFling: true,
-                        pageSnap: true,
-                        autoSpacing: true,
-                        onViewCreated: (PDFViewController controller) {
-                          _pdfController = controller;
-                          WidgetsBinding.instance.addPostFrameCallback((_) => _updatePdfViewSize());
-                        },
-                        onPageChanged: (int? page, int? total) {
-                          if (page != null) {
-                            setState(() {
-                              _currentPage = page + 1;
-                            });
-                          }
-                        },
-                        onError: (error) {
-                          _showSnackBar('Error loading PDF: $error');
-                        },
-                      ),
-                    ),
-                  ),
-                  // Draggable Image
-                  if (widget.imagePath != null)
-                    Positioned(
-                      left: _currentPosition.dx,
-                      top: _currentPosition.dy,
-                      child: GestureDetector(
-                        onScaleUpdate: (details) {
-                          setState(() {
-                            _imageZoomLevel = (_imageZoomLevel * details.scale).clamp(0.2, 2);
-                          });
-                        },
-                        child: Draggable(
-                          feedback: AnimatedOpacity(
-                            opacity: 0.7,
-                            duration: Duration(milliseconds: 100),
-                            child: _buildImageContainer(),
-                          ),
-                          childWhenDragging: Container(),
-                          onDragEnd: (details) {
-                            final renderBox = context.findRenderObject() as RenderBox?;
-                            final offset = renderBox?.globalToLocal(details.offset) ?? details.offset;
-
-                            final appBarHeight = AppBar().preferredSize.height;
-                            final statusBarHeight = MediaQuery.of(context).padding.top;
-                            final totalOffset = appBarHeight + statusBarHeight;
-
-                            final pdfContentTopOffset = (_pdfViewHeightInPixels - _pdfContentHeightInPixels) / 2;
-                            final pdfContentBottomOffset = pdfContentTopOffset + _pdfContentHeightInPixels;
-
-                            setState(() {
-                              _currentPosition = Offset(
-                                offset.dx.clamp(12, _pdfContentWidthInPixels),
-                                (offset.dy - totalOffset).clamp(pdfContentTopOffset, pdfContentBottomOffset - (_currentHeight * _imageZoomLevel)),
+                      child: Stack(
+                        children: [
+                          FutureBuilder<px.PdfPageImage>(
+                            future: _renderPage(index + 1),
+                            builder: (context, snapshot) {
+                              if (snapshot.connectionState == ConnectionState.waiting) {
+                                return Container(
+                                  height: 400,
+                                  child: Center(
+                                    child: CircularProgressIndicator(color: Colors.teal),
+                                  ),
+                                );
+                              }
+                              if (snapshot.hasError) {
+                                return Center(
+                                  child: Text(
+                                    'Error loading page ${index + 1}',
+                                    style: TextStyle(color: Colors.red.shade700),
+                                  ),
+                                );
+                              }
+                              return Container(
+                                key: _pageKeys[index],
+                                child: Image.memory(
+                                  snapshot.data!.bytes,
+                                  fit: BoxFit.contain,
+                                  width: double.infinity,
+                                ),
                               );
-                              widget.onPositionChanged(_currentPosition);
-                            });
-                          },
-                          child: _buildImageContainer(),
-                        ),
+                            },
+                          ),
+                          if (widget.imagePath != null)
+                            ValueListenableBuilder<int>(
+                              valueListenable: _pageIndexNotifier,
+                              builder: (context, pageIndex, child) {
+                                if (index != pageIndex) return SizedBox.shrink();
+                                return ValueListenableBuilder<Offset>(
+                                  valueListenable: _positionNotifier,
+                                  builder: (context, position, child) {
+                                    return ValueListenableBuilder<double>(
+                                      valueListenable: _zoomNotifier,
+                                      builder: (context, zoom, child) {
+                                        final flutterPosition = _convertFromPdfToFlutterCoordinates(position, pageIndex);
+                                        return Positioned(
+                                          left: flutterPosition.dx,
+                                          top: flutterPosition.dy,
+                                          child: GestureDetector(
+                                            onScaleUpdate: (details) {
+                                              _zoomNotifier.value = (_zoomNotifier.value * details.scale).clamp(0.2, 2);
+                                            },
+                                            child: Draggable(
+                                              feedback: AnimatedOpacity(
+                                                opacity: 0.7,
+                                                duration: Duration(milliseconds: 100),
+                                                child: _buildImageContainer(zoom),
+                                              ),
+                                              childWhenDragging: Container(),
+                                              onDragEnd: (details) {
+                                                int newPageIndex = _findPageIndex(details.offset);
+                                                final context = _pageKeys[newPageIndex].currentContext;
+                                                if (context != null) {
+                                                  RenderBox? renderBox;
+                                                  try {
+                                                    renderBox = context.findRenderObject() as RenderBox?;
+                                                  } catch (e) {
+                                                    print('Error getting renderObject for page $newPageIndex: $e');
+                                                    return;
+                                                  }
+                                                  if (renderBox != null) {
+                                                    final localOffset = renderBox.globalToLocal(details.offset);
+                                                    print('onDragEnd: globalOffset: ${details.offset}, localOffset: $localOffset, page: $newPageIndex');
+                                                    final pdfPosition = _convertToPdfCoordinates(details.offset, newPageIndex);
+                                                    _positionNotifier.value = pdfPosition;
+                                                    _pageIndexNotifier.value = newPageIndex;
+                                                    widget.onPositionChanged(pdfPosition);
+                                                    print('New position: $pdfPosition, page: $newPageIndex');
+                                                  }
+                                                }
+                                              },
+                                              child: _buildImageContainer(zoom),
+                                            ),
+                                          ),
+                                        );
+                                      },
+                                    );
+                                  },
+                                );
+                              },
+                            ),
+                        ],
                       ),
                     ),
-                ],
+                  );
+                },
               ),
       ),
     );
   }
 
-  // Build the image container with consistent styling
-Widget _buildImageContainer() {
-  return Container(
-    width: _currentWidth * _imageZoomLevel,
-    height: _currentHeight * _imageZoomLevel,
-    decoration: BoxDecoration(
-      border: Border.all(
-        color: Colors.teal.shade700,
-        width: 2,
+  Future<px.PdfPageImage> _renderPage(int pageNumber) async {
+    final page = await _pdfDocument.getPage(pageNumber);
+    final pageImage = await page.render(
+      width: page.width,
+      height: page.height,
+    );
+    await page.close();
+    return pageImage!;
+  }
+
+  int _findPageIndex(Offset globalOffset) {
+    for (int i = 0; i < _pageKeys.length; i++) {
+      final context = _pageKeys[i].currentContext;
+      if (context == null) {
+        print('Context is null for page $i');
+        continue;
+      }
+
+      RenderBox? renderBox;
+      try {
+        renderBox = context.findRenderObject() as RenderBox?;
+      } catch (e) {
+        print('Error getting renderObject for page $i: $e');
+        continue;
+      }
+
+      if (renderBox != null) {
+        final position = renderBox.globalToLocal(globalOffset);
+        print('Checking page $i: position: $position, size: ${renderBox.size}');
+        if (position.dx >= 0 &&
+            position.dx <= renderBox.size.width &&
+            position.dy >= 0 &&
+            position.dy <= renderBox.size.height) {
+          print('Found page: $i');
+          return i;
+        }
+      }
+    }
+    print('No page found, returning current: ${_pageIndexNotifier.value}');
+    return _pageIndexNotifier.value;
+  }
+
+  Widget _buildImageContainer(double zoom) {
+    return Container(
+      width: _currentWidth * zoom,
+      height: _currentHeight * zoom,
+      decoration: BoxDecoration(
+        border: Border.all(
+          color: Colors.teal.shade700,
+          width: 2,
+        ),
+        borderRadius: BorderRadius.circular(12),
       ),
-      borderRadius: BorderRadius.circular(12),
-    ),
-    child: ClipRRect(
-      borderRadius: BorderRadius.circular(10),
-      child: Image.file(
-        File(widget.imagePath!),
-        width: _currentWidth * _imageZoomLevel,
-        height: _currentWidth * _imageZoomLevel,
-        fit: BoxFit.contain,
-        errorBuilder: (context, error, stackTrace) {
-          return Center(
-            child: Text(
-              'Error loading image',
-              style: TextStyle(color: Colors.red.shade700, fontSize: 12),
-              textAlign: TextAlign.center,
-            ),
-          );
-        },
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: Image.file(
+          File(widget.imagePath!),
+          width: _currentWidth * zoom,
+          height: _currentHeight * zoom,
+          fit: BoxFit.contain,
+          errorBuilder: (context, error, stackTrace) {
+            return Center(
+              child: Text(
+                'Error loading image',
+                style: TextStyle(color: Colors.red.shade700, fontSize: 12),
+                textAlign: TextAlign.center,
+              ),
+            );
+          },
+        ),
       ),
-    ),
-  );
-}
+    );
+  }
 }
