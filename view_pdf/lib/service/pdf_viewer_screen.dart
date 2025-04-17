@@ -66,7 +66,7 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
       });
     } catch (e) {
       if (mounted) {
-        _showSnackBar('Error initializing PDF: $e');
+        _showSnackBar('Lỗi khi khởi tạo PDF: $e');
       }
     }
   }
@@ -180,7 +180,7 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
 
   Future<void> _savePDF() async {
     if (widget.imagePath == null) {
-      _showSnackBar('Please select an image to save');
+      _showSnackBar('Vui lòng chọn hình ảnh để lưu');
       return;
     }
 
@@ -240,25 +240,12 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
       await newPdfFile.writeAsBytes(await pdf.save());
 
       if (mounted) {
-        _showSnackBar('PDF saved successfully');
-        Navigator.pushReplacement(
-          context,
-          MaterialPageRoute(
-            builder: (context) => PDFViewerScreen(
-              filePath: newPdfPath,
-              imagePath: widget.imagePath,
-              imagePosition: widget.imagePosition,
-              imageWidth: widget.imageWidth,
-              imageHeight: widget.imageHeight,
-              onPositionChanged: widget.onPositionChanged,
-              onSizeChanged: widget.onSizeChanged,
-            ),
-          ),
-        );
+        _showSnackBar('Đã lưu PDF thành công');
+        Navigator.pop(context, newPdfPath);
       }
     } catch (e) {
       if (mounted) {
-        _showSnackBar('Error saving PDF: $e');
+        _showSnackBar('Lỗi khi lưu PDF: $e');
       }
     } finally {
       if (mounted) {
@@ -274,7 +261,7 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
           message,
           style: TextStyle(color: Colors.white),
         ),
-        backgroundColor: Colors.teal.shade700,
+        backgroundColor: Colors.blue.shade700,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
       ),
@@ -295,26 +282,26 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'PDF Editor',
+          'Ký tài liệu',
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
-        backgroundColor: Colors.teal,
+        backgroundColor: Colors.blue.shade300,
         elevation: 0,
         centerTitle: true,
         actions: [
           IconButton(
-            icon: Icon(Icons.zoom_in),
+            icon: Icon(Icons.zoom_in, color: Colors.white),
             onPressed: () {
               _zoomNotifier.value = (_zoomNotifier.value + 0.2).clamp(0.2, 2);
             },
-            tooltip: 'Zoom In',
+            tooltip: 'Phóng to',
           ),
           IconButton(
-            icon: Icon(Icons.zoom_out),
+            icon: Icon(Icons.zoom_out, color: Colors.white),
             onPressed: () {
               _zoomNotifier.value = (_zoomNotifier.value - 0.2).clamp(0.2, 2);
             },
-            tooltip: 'Zoom Out',
+            tooltip: 'Thu nhỏ',
           ),
           Padding(
             padding: const EdgeInsets.only(right: 8.0),
@@ -330,9 +317,9 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
                       ),
                     )
                   : Icon(Icons.save, size: 20, color: Colors.white),
-              label: Text('Save'),
+              label: Text('Lưu'),
               style: ElevatedButton.styleFrom(
-                backgroundColor: Colors.teal.shade700,
+                backgroundColor: Colors.blue.shade700,
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
@@ -344,18 +331,24 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
         ],
       ),
       body: Container(
-        color: Colors.teal.shade50,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Colors.blue.shade50, Colors.white],
+          ),
+        ),
         child: _isLoading
             ? Center(
                 child: Column(
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
-                    CircularProgressIndicator(color: Colors.teal),
+                    CircularProgressIndicator(color: Colors.blue.shade700),
                     SizedBox(height: 16),
                     Text(
-                      'Loading PDF...',
+                      'Đang tải PDF...',
                       style: TextStyle(
-                        color: Colors.teal.shade900,
+                        color: Colors.blue.shade900,
                         fontSize: 16,
                         fontWeight: FontWeight.w500,
                       ),
@@ -384,14 +377,14 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
                                 return Container(
                                   height: 400,
                                   child: Center(
-                                    child: CircularProgressIndicator(color: Colors.teal),
+                                    child: CircularProgressIndicator(color: Colors.blue.shade700),
                                   ),
                                 );
                               }
                               if (snapshot.hasError) {
                                 return Center(
                                   child: Text(
-                                    'Error loading page ${index + 1}',
+                                    'Lỗi khi tải trang ${index + 1}',
                                     style: TextStyle(color: Colors.red.shade700),
                                   ),
                                 );
@@ -522,7 +515,7 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
       height: _currentHeight * zoom,
       decoration: BoxDecoration(
         border: Border.all(
-          color: Colors.teal.shade700,
+          color: Colors.blue.shade700,
           width: 2,
         ),
         borderRadius: BorderRadius.circular(12),
@@ -537,7 +530,7 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
           errorBuilder: (context, error, stackTrace) {
             return Center(
               child: Text(
-                'Error loading image',
+                'Lỗi khi tải hình ảnh',
                 style: TextStyle(color: Colors.red.shade700, fontSize: 12),
                 textAlign: TextAlign.center,
               ),

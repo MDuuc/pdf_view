@@ -142,7 +142,7 @@ class _SignaturePadState extends State<SignaturePad> {
 
           // Save file PNG with a random name
           final tempDir = await getTemporaryDirectory();
-          final randomString = DateTime.now().millisecondsSinceEpoch.toString(); // Generate random string from timestamp
+          final randomString = DateTime.now().millisecondsSinceEpoch.toString();
           final signaturePath = '${tempDir.path}/signature_$randomString.png';
           await File(signaturePath).writeAsBytes(buffer);
 
@@ -156,11 +156,11 @@ class _SignaturePadState extends State<SignaturePad> {
           Navigator.pop(context);
         } else {
           print("No valid points to save");
-          _showSnackBar('Please draw a signature before saving');
+          _showSnackBar('Vui lòng vẽ chữ ký trước khi lưu');
         }
       } else {
         print("Points list is empty");
-        _showSnackBar('Please draw a signature before saving');
+        _showSnackBar('Vui lòng vẽ chữ ký trước khi lưu');
       }
     } finally {
       setState(() {
@@ -177,7 +177,7 @@ class _SignaturePadState extends State<SignaturePad> {
           message,
           style: TextStyle(color: Colors.white),
         ),
-        backgroundColor: Colors.teal.shade700,
+        backgroundColor: Colors.blue.shade700,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
         duration: Duration(seconds: 1),
@@ -190,35 +190,40 @@ class _SignaturePadState extends State<SignaturePad> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'Draw Your Signature',
+          'Vẽ chữ ký',
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
-        backgroundColor: Colors.teal,
+        backgroundColor: Colors.blue.shade300,
         elevation: 0,
         centerTitle: true,
         actions: [
           IconButton(
-            icon: Icon(Icons.delete),
+            icon: Icon(Icons.delete, color: Colors.white),
             onPressed: points.isEmpty
                 ? null
                 : () async {
                     setState(() {
                       points.clear();
                     });
-                    // Delete saved points file
                     final tempDir = await getTemporaryDirectory();
                     final pointsFile = File('${tempDir.path}/signature_points.json');
                     if (await pointsFile.exists()) {
                       await pointsFile.delete();
                     }
-                    _showSnackBar('Signature cleared');
+                    _showSnackBar('Đã xóa chữ ký');
                   },
-            tooltip: 'Clear Signature',
+            tooltip: 'Xóa chữ ký',
           ),
         ],
       ),
       body: Container(
-        color: Colors.teal.shade50,
+        decoration: BoxDecoration(
+          gradient: LinearGradient(
+            begin: Alignment.topCenter,
+            end: Alignment.bottomCenter,
+            colors: [Colors.blue.shade50, Colors.white],
+          ),
+        ),
         padding: EdgeInsets.all(16),
         child: Column(
           children: [
@@ -226,10 +231,10 @@ class _SignaturePadState extends State<SignaturePad> {
             Padding(
               padding: EdgeInsets.only(bottom: 16),
               child: Text(
-                'Draw your signature below',
+                'Vẽ chữ ký của bạn bên dưới',
                 style: TextStyle(
                   fontSize: 18,
-                  color: Colors.teal.shade900,
+                  color: Colors.blue.shade900,
                   fontWeight: FontWeight.w500,
                 ),
                 textAlign: TextAlign.center,
@@ -247,7 +252,7 @@ class _SignaturePadState extends State<SignaturePad> {
                     color: Colors.white,
                     borderRadius: BorderRadius.circular(12),
                     border: Border.all(
-                      color: Colors.teal.shade200,
+                      color: Colors.blue.shade200,
                       width: 2,
                     ),
                   ),
@@ -293,16 +298,15 @@ class _SignaturePadState extends State<SignaturePad> {
                             setState(() {
                               points.clear();
                             });
-                            // Delete saved points file
                             final tempDir = await getTemporaryDirectory();
                             final pointsFile = File('${tempDir.path}/signature_points.json');
                             if (await pointsFile.exists()) {
                               await pointsFile.delete();
                             }
-                            _showSnackBar('Signature cleared');
+                            _showSnackBar('Đã xóa chữ ký');
                           },
                     icon: Icon(Icons.clear, size: 20, color: Colors.white),
-                    label: Text('Clear'),
+                    label: Text('Xóa'),
                     style: ElevatedButton.styleFrom(
                       backgroundColor: Colors.red.shade600,
                       foregroundColor: Colors.white,
@@ -324,9 +328,9 @@ class _SignaturePadState extends State<SignaturePad> {
                             ),
                           )
                         : Icon(Icons.save, size: 20, color: Colors.white),
-                    label: Text('Save'),
+                    label: Text('Lưu'),
                     style: ElevatedButton.styleFrom(
-                      backgroundColor: Colors.teal.shade700,
+                      backgroundColor: Colors.blue.shade700,
                       foregroundColor: Colors.white,
                       shape: RoundedRectangleBorder(
                         borderRadius: BorderRadius.circular(12),

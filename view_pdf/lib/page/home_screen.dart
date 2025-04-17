@@ -53,7 +53,7 @@ class _HomeScreenState extends State<HomeScreen> {
           onSignatureSaved: (signaturePath) {
             if (mounted) {
               setState(() {
-                _imagePath = signaturePath; // Use signature as image
+                _imagePath = signaturePath;
               });
             }
           },
@@ -115,10 +115,10 @@ class _HomeScreenState extends State<HomeScreen> {
     return Scaffold(
       appBar: AppBar(
         title: Text(
-          'PDF Editor',
+          'Tải tài liệu',
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
-        backgroundColor: Colors.teal,
+        backgroundColor: Colors.blue.shade300,
         elevation: 0,
         centerTitle: true,
       ),
@@ -127,7 +127,7 @@ class _HomeScreenState extends State<HomeScreen> {
           gradient: LinearGradient(
             begin: Alignment.topCenter,
             end: Alignment.bottomCenter,
-            colors: [Colors.teal.shade50, Colors.white],
+            colors: [Colors.blue.shade50, Colors.white],
           ),
         ),
         child: Center(
@@ -137,134 +137,201 @@ class _HomeScreenState extends State<HomeScreen> {
               mainAxisAlignment: MainAxisAlignment.center,
               crossAxisAlignment: CrossAxisAlignment.stretch,
               children: [
-                // Welcome Header
+                // PDF Selection Section
                 Text(
-                  'Chỉnh sửa PDF dễ dàng',
-                  style: TextStyle(
-                    fontSize: 24,
-                    fontWeight: FontWeight.bold,
-                    color: Colors.teal.shade900,
-                  ),
-                  textAlign: TextAlign.center,
-                ),
-                SizedBox(height: 8),
-                Text(
-                  'Chọn tệp, thêm chữ ký hoặc hình ảnh, và xem trước PDF.',
+                  'Ẩn để chọn file để tải lên',
                   style: TextStyle(
                     fontSize: 16,
-                    color: Colors.teal.shade700,
+                    color: Colors.blue.shade700,
                   ),
                   textAlign: TextAlign.center,
                 ),
-                SizedBox(height: 32),
-
-                // PDF Button
-                _buildActionCard(
-                  icon: Icons.picture_as_pdf,
-                  title: 'Chọn file PDF',
-                  subtitle: _pdfPath != null
-                      ? _pdfPath!.split('/').last
-                      : 'Chưa chọn tệp PDF',
-                  onTap: _isProcessing ? null : _pickPDF,
-                  color: Colors.teal,
-                ),
-
-                // Image Button
-                _buildActionCard(
-                  icon: Icons.image,
-                  title: 'Chọn ảnh',
-                  subtitle: _imagePath != null
-                      ? _imagePath!.split('/').last
-                      : 'Chưa chọn hình ảnh',
-                  onTap: _isProcessing ? null : _pickImage,
-                  color: Colors.blue,
-                ),
-
-                // Signature Button
-                _buildActionCard(
-                  icon: Icons.edit,
-                  title: 'Vẽ chữ ký',
-                  subtitle: _imagePath != null && _imagePath!.contains('signature')
-                      ? 'Chữ ký đã được vẽ'
-                      : 'Tạo chữ ký mới',
-                  onTap: _isProcessing ? null : _drawSignature,
-                  color: Colors.purple,
-                ),
-
-                // View PDF Button
-                _buildActionCard(
-                  icon: Icons.visibility,
-                  title: 'Xem PDF',
-                  subtitle: 'Xem và chỉnh sửa PDF với hình ảnh hoặc chữ ký',
-                  onTap: _isProcessing ? null : _viewPDF,
-                  color: Colors.orange,
-                ),
-
-                // Open PDF Button
-                _buildActionCard(
-                  icon: Icons.open_in_new,
-                  title: 'Mở file PDF',
-                  subtitle: 'Mở PDF trong ứng dụng mặc định',
-                  onTap: _isProcessing ? null : _openPDF,
-                  color: Colors.green,
-                ),
-              ],
-            ),
-          ),
-        ),
-      ),
-    );
-  }
-
-  Widget _buildActionCard({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required VoidCallback? onTap,
-    required Color color,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.only(bottom: 16.0),
-      child: Card(
-        elevation: 4,
-        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
-        child: InkWell(
-          onTap: onTap,
-          borderRadius: BorderRadius.circular(12),
-          child: Padding(
-            padding: const EdgeInsets.all(16.0),
-            child: Row(
-              children: [
-                CircleAvatar(
-                  backgroundColor: color.withOpacity(0.1),
-                  child: Icon(icon, color: color, size: 28),
-                ),
-                SizedBox(width: 16),
-                Expanded(
-                  child: Column(
-                    crossAxisAlignment: CrossAxisAlignment.start,
+                SizedBox(height: 16),
+                Container(
+                  padding: EdgeInsets.all(16),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.blue.shade200, style: BorderStyle.solid, width: 1),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    mainAxisAlignment: MainAxisAlignment.center,
                     children: [
-                      Text(
-                        title,
-                        style: TextStyle(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                          color: Colors.teal.shade900,
+                      Icon(Icons.upload_file, color: Colors.blue),
+                      SizedBox(width: 8),
+                      TextButton(
+                        onPressed: () {
+                          _pickPDF();
+                        },
+                        child: Text(
+                          'Chọn file',
+                          style: TextStyle(color: Colors.blue, fontSize: 16),
                         ),
-                      ),
-                      SizedBox(height: 4),
-                      Text(
-                        subtitle,
-                        style: TextStyle(
-                          fontSize: 14,
-                          color: Colors.grey.shade600,
-                        ),
-                        overflow: TextOverflow.ellipsis,
                       ),
                     ],
                   ),
                 ),
-                Icon(Icons.arrow_forward_ios, size: 16, color: Colors.grey.shade400),
+                SizedBox(height: 16),
+
+                // Document Name
+                Text(
+                  'Tên tài liệu',
+                  style: TextStyle(fontSize: 16, color: Colors.black87),
+                ),
+                SizedBox(height: 8),
+                Container(
+                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey.shade300),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _pdfPath != null ? _pdfPath!.split('/').last : 'Chưa chọn tệp PDF',
+                          style: TextStyle(color: Colors.black54),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (_pdfPath != null)
+                        IconButton(
+                          icon: Icon(Icons.close, color: Colors.grey),
+                          onPressed: () {
+                            setState(() {
+                              _pdfPath = null;
+                            });
+                          },
+                        ),
+                    ],
+                  ),
+                ),
+                SizedBox(height: 16),
+
+                // Image and Signature Buttons (on the same row)
+                Row(
+                  children: [
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: _isProcessing ? null : _pickImage,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blue.shade100,
+                          padding: EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        child: Text(
+                          'Chọn hình ảnh',
+                          style: TextStyle(color: Colors.blue.shade900),
+                        ),
+                      ),
+                    ),
+                    SizedBox(width: 16),
+                    Expanded(
+                      child: ElevatedButton(
+                        onPressed: _isProcessing ? null : _drawSignature,
+                        style: ElevatedButton.styleFrom(
+                          backgroundColor: Colors.blue.shade100,
+                          padding: EdgeInsets.symmetric(vertical: 12),
+                          shape: RoundedRectangleBorder(
+                            borderRadius: BorderRadius.circular(8),
+                          ),
+                        ),
+                        child: Text(
+                          'Vẽ chữ ký',
+                          style: TextStyle(color: Colors.blue.shade900),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+                SizedBox(height: 16),
+
+                // Image Name (always shown)
+                Text(
+                  'Tên ảnh',
+                  style: TextStyle(fontSize: 16, color: Colors.black87),
+                ),
+                SizedBox(height: 8),
+                Container(
+                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey.shade300),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _imagePath != null ? _imagePath!.split('/').last : 'Chưa chọn hình ảnh',
+                          style: TextStyle(color: Colors.black54),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (_imagePath != null)
+                        IconButton(
+                          icon: Icon(Icons.close, color: Colors.grey),
+                          onPressed: () {
+                            setState(() {
+                              _imagePath = null;
+                            });
+                          },
+                        ),
+                    ],
+                  ),
+                ),
+                SizedBox(height: 16),
+
+                // Open PDF Section (always shown)
+                Text(
+                  'Mở file PDF',
+                  style: TextStyle(fontSize: 16, color: Colors.black87),
+                ),
+                SizedBox(height: 8),
+                Container(
+                  padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                  decoration: BoxDecoration(
+                    border: Border.all(color: Colors.grey.shade300),
+                    borderRadius: BorderRadius.circular(8),
+                  ),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          _pdfPath != null ? _pdfPath!.split('/').last : 'Chưa chọn tệp PDF',
+                          style: TextStyle(color: Colors.black54),
+                          overflow: TextOverflow.ellipsis,
+                        ),
+                      ),
+                      if (_pdfPath != null)
+                        IconButton(
+                          icon: Icon(Icons.delete, color: Colors.red),
+                          onPressed: () {
+                            setState(() {
+                              _pdfPath = null;
+                            });
+                          },
+                        ),
+                    ],
+                  ),
+                ),
+                SizedBox(height: 32),
+
+                // Continue Button
+                ElevatedButton(
+                  onPressed: _isProcessing ? null : _viewPDF,
+                  style: ElevatedButton.styleFrom(
+                    backgroundColor: Colors.blue.shade300,
+                    padding: EdgeInsets.symmetric(vertical: 16),
+                    shape: RoundedRectangleBorder(
+                      borderRadius: BorderRadius.circular(8),
+                    ),
+                  ),
+                  child: Text(
+                    'Đi tiếp',
+                    style: TextStyle(fontSize: 16, color: Colors.white),
+                  ),
+                ),
               ],
             ),
           ),
