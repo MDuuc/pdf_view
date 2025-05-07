@@ -44,6 +44,7 @@ dependencies:
   share_plus: ^10.1.4
   pdf_render: ^1.4.12
   syncfusion_flutter_pdfviewer: ^29.1.38
+  pdfrx: ^1.1.28
 
 
 

@@ -1,9 +1,18 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
-import 'package:syncfusion_flutter_pdf/pdf.dart';
-import 'package:syncfusion_flutter_pdfviewer/pdfviewer.dart';
+import 'package:pdfrx/pdfrx.dart';
+import 'package:syncfusion_flutter_pdf/pdf.dart' as syncfusion;
 import 'package:path_provider/path_provider.dart';
 
+/// Constants for PDF processing
+class PdfConstants {
+  static const double dpiFactor = 1.25;
+  static const double minDimension = 50.0;
+  static const int margin = 8;
+  static const double zoomStep = 0.2;
+}
+
+/// A screen for viewing and editing a PDF with an overlay image.
 class PDFViewerScreen extends StatefulWidget {
   final String filePath;
   final String? imagePath;
@@ -21,189 +30,198 @@ class PDFViewerScreen extends StatefulWidget {
     required this.imageHeight,
     required this.onPositionChanged,
     required this.onSizeChanged,
-    Key? key,
-  }) : super(key: key);
+    super.key,
+  });
 
   @override
   _PDFViewerScreenState createState() => _PDFViewerScreenState();
 }
 
 class _PDFViewerScreenState extends State<PDFViewerScreen> {
-  final PdfViewerController _pdfViewerController = PdfViewerController();
+  late PdfViewerController _controller;
   late ValueNotifier<Offset> _positionNotifier;
   late ValueNotifier<double> _zoomNotifier;
   late ValueNotifier<int> _pageIndexNotifier;
   late double _currentWidth;
   late double _currentHeight;
-  int _totalPages = 1;
   bool _isSaving = false;
   bool _isLoading = true;
-  late PdfDocument _pdfDocument;
+  String? _errorMessage;
   List<Size> _pageSizes = [];
+  List<Rect> _pageLayouts = [];
   final GlobalKey _pdfViewerKey = GlobalKey();
 
   @override
   void initState() {
     super.initState();
+    _controller = PdfViewerController();
     _positionNotifier = ValueNotifier(widget.imagePosition);
     _zoomNotifier = ValueNotifier(1.0);
     _pageIndexNotifier = ValueNotifier(0);
     _currentWidth = widget.imageWidth;
     _currentHeight = widget.imageHeight;
-    print('Đường dẫn ảnh: ${widget.imagePath}');
-    print('Tọa độ ban đầu: ${widget.imagePosition}');
+    _controller.addListener(_onControllerChanged);
     _initialize();
   }
 
+  /// Initializes PDF document and checks file access.
   Future<void> _initialize() async {
     try {
-      await _initializePdfDocument();
+      await _checkFileAccess();
+      if (_controller.document == null) {
+        await Future.delayed(const Duration(milliseconds: 100));
+        if (_controller.document == null) {
+          throw Exception('Failed to load PDF document');
+        }
+      }
       setState(() => _isLoading = false);
     } catch (e) {
-      if (mounted) {
-        _showSnackBar('Lỗi khi khởi tạo PDF: $e');
+      setState(() {
+        _isLoading = false;
+        _errorMessage = 'Error: $e';
+      });
+    }
+  }
+
+  /// Checks if the PDF and image files are accessible.
+  Future<void> _checkFileAccess() async {
+    final pdfFile = File(widget.filePath);
+    if (!await pdfFile.exists()) {
+      throw FileSystemException('PDF file not found at ${widget.filePath}');
+    }
+    final pdfBytes = await pdfFile.readAsBytes();
+    if (pdfBytes.isEmpty) {
+      throw FileSystemException('PDF file is empty');
+    }
+
+    if (widget.imagePath != null) {
+      final imageFile = File(widget.imagePath!);
+      if (!await imageFile.exists()) {
+        throw FileSystemException('Image file not found at ${widget.imagePath}');
       }
     }
   }
 
-  Future<void> _initializePdfDocument() async {
-    try {
-      final pdfFile = File(widget.filePath);
-      if (!await pdfFile.exists()) {
-        throw FileSystemException('PDF file not found');
-      }
-      final bytes = await pdfFile.readAsBytes();
-      _pdfDocument = PdfDocument(inputBytes: bytes);
-      _totalPages = _pdfDocument.pages.count;
-      _pageSizes = [];
-      for (int i = 0; i < _totalPages; i++) {
-        final page = _pdfDocument.pages[i];
-        _pageSizes.add(Size(page.size.width, page.size.height));
-      }
-      print('Tổng số trang: $_totalPages');
-      print('Kích thước các trang: $_pageSizes');
-    } catch (e) {
-      print('Lỗi khởi tạo PDF: $e');
-      rethrow;
+  /// Handles changes in the PDF controller state.
+  void _onControllerChanged() {
+    if (_controller.document != null && _pageSizes.isEmpty) {
+      setState(() {
+        _pageSizes = _controller.document!.pages
+            .map((page) => Size(page.width.toDouble(), page.height.toDouble()))
+            .toList();
+      });
+      print('PDF loaded, page sizes: $_pageSizes');
+    } else if (_controller.document == null && !_isLoading) {
+      setState(() {
+        _errorMessage = 'Failed to load PDF document';
+      });
     }
   }
 
+  /// Converts Flutter coordinates to PDF coordinates for a given page.
   Offset _convertToPdfCoordinates(Offset flutterPosition, int pageIndex) {
-    if (_pageSizes.isEmpty || pageIndex < 0 || pageIndex >= _pageSizes.length) {
-      print('Lỗi: Trang không hợp lệ hoặc danh sách kích thước trang rỗng');
+    if (_pageSizes.isEmpty || pageIndex >= _pageSizes.length || pageIndex < 0) {
+      print('Warning: Invalid page or empty page sizes list');
       return flutterPosition;
     }
 
     final pageSize = _pageSizes[pageIndex];
-    final context = _pdfViewerKey.currentContext;
-
-    if (context == null) {
-      print('Lỗi: Context của SfPdfViewer là null');
-      return flutterPosition;
-    }
-
-    RenderBox? renderBox;
-    try {
-      renderBox = context.findRenderObject() as RenderBox?;
-    } catch (e) {
-      print('Lỗi lấy RenderBox: $e');
-      return flutterPosition;
-    }
+    final pageLayout = _pageLayouts[pageIndex];
+    final renderBox = _pdfViewerKey.currentContext?.findRenderObject() as RenderBox?;
 
     if (renderBox == null) {
-      print('Lỗi: RenderBox không tồn tại');
+      print('Warning: RenderBox not available for PDF viewer');
       return flutterPosition;
     }
 
-    final pageSizeInPixels = renderBox.size;
-    final scaleX = pageSize.width / pageSizeInPixels.width;
-    final scaleY = pageSize.height / pageSizeInPixels.height;
-
     final localPosition = renderBox.globalToLocal(flutterPosition);
-    final adjustedDy = localPosition.dy.clamp(0.0, pageSizeInPixels.height);
-    final double pdfX = (localPosition.dx * scaleX).clamp(0, pageSize.width);
-    final double pdfY = (adjustedDy * scaleY).clamp(0, pageSize.height);
+    final relativeY = localPosition.dy - pageLayout.top;
+    final scaleX = pageSize.width / pageLayout.width;
+    final scaleY = pageSize.height / pageLayout.height;
 
-    print('Chuyển đổi tọa độ:');
-    print('  pageSize: $pageSize');
-    print('  pageSizeInPixels: $pageSizeInPixels');
-    print('  scaleX: $scaleX, scaleY: $scaleY');
-    print('  flutterPosition: $flutterPosition');
-    print('  localPosition: $localPosition');
-    print('  adjustedDy: $adjustedDy');
-    print('  pdfX: $pdfX, pdfY: $pdfY');
+    final pdfX = (localPosition.dx * scaleX).clamp(0, pageSize.width).toDouble();
+    final pdfY = (relativeY * scaleY).clamp(0, pageSize.height).toDouble();
 
+    print('Convert Flutter ($flutterPosition) -> PDF ($pdfX, $pdfY) on page $pageIndex');
     return Offset(pdfX, pdfY);
   }
 
+  /// Converts PDF coordinates to Flutter coordinates for a given page.
   Offset _convertFromPdfToFlutterCoordinates(Offset pdfPosition, int pageIndex) {
     if (_pageSizes.isEmpty || pageIndex < 0 || pageIndex >= _pageSizes.length) {
-      print('Lỗi: Trang không hợp lệ hoặc danh sách kích thước trang rỗng');
+      print('Warning: Invalid page or empty page sizes list');
       return pdfPosition;
     }
 
     final pageSize = _pageSizes[pageIndex];
-    final context = _pdfViewerKey.currentContext;
-
-    if (context == null) {
-      print('Lỗi: Context của SfPdfViewer là null');
-      return pdfPosition;
-    }
-
-    RenderBox? renderBox;
-    try {
-      renderBox = context.findRenderObject() as RenderBox?;
-    } catch (e) {
-      print('Lỗi lấy RenderBox: $e');
-      return pdfPosition;
-    }
+    final pageLayout = _pageLayouts[pageIndex];
+    final renderBox = _pdfViewerKey.currentContext?.findRenderObject() as RenderBox?;
 
     if (renderBox == null) {
-      print('Lỗi: RenderBox không tồn tại');
+      print('Warning: RenderBox not available for PDF viewer');
       return pdfPosition;
     }
 
-    final pageSizeInPixels = renderBox.size;
-    final scaleX = pageSizeInPixels.width / pageSize.width;
-    final scaleY = pageSizeInPixels.height / pageSize.height;
+    final scaleX = pageLayout.width / pageSize.width;
+    final scaleY = pageLayout.height / pageSize.height;
 
-    final double flutterX = (pdfPosition.dx * scaleX).clamp(0, pageSizeInPixels.width);
-    final double flutterY = (pdfPosition.dy * scaleY).clamp(0, pageSizeInPixels.height);
-
-    print('Chuyển đổi tọa độ ngược:');
-    print('  pageSize: $pageSize');
-    print('  pageSizeInPixels: $pageSizeInPixels');
-    print('  scaleX: $scaleX, scaleY: $scaleY');
-    print('  pdfPosition: $pdfPosition');
-    print('  flutterX: $flutterX, flutterY: $flutterY');
-
+    final flutterX = pdfPosition.dx * scaleX;
+    final flutterY = pageLayout.top + (pdfPosition.dy * scaleY);
     return Offset(flutterX, flutterY);
   }
 
+  /// Converts Flutter image size to PDF size with DPI adjustment.
   Size _convertToPdfSize(double width, double height) {
-    const double dpiFactor = 1.25;
-    final double pdfWidth = (width * dpiFactor * _zoomNotifier.value).clamp(50, _pageSizes[_pageIndexNotifier.value].width);
-    final double pdfHeight = (height * dpiFactor * _zoomNotifier.value).clamp(50, _pageSizes[_pageIndexNotifier.value].height);
-    print('Kích thước PDF: ($pdfWidth, $pdfHeight)');
+    final pdfWidth = (width * PdfConstants.dpiFactor * _zoomNotifier.value)
+        .clamp(PdfConstants.minDimension, _pageSizes[_pageIndexNotifier.value].width);
+    final pdfHeight = (height * PdfConstants.dpiFactor * _zoomNotifier.value)
+        .clamp(PdfConstants.minDimension, _pageSizes[_pageIndexNotifier.value].height);
     return Size(pdfWidth, pdfHeight);
   }
 
+  /// Finds the page index corresponding to a global offset.
+  int _findPageIndex(Offset globalOffset) {
+    final renderBox = _pdfViewerKey.currentContext?.findRenderObject() as RenderBox?;
+    if (renderBox == null) {
+      print('Warning: RenderBox not available for PDF viewer');
+      return _pageIndexNotifier.value;
+    }
+
+    final localPosition = renderBox.globalToLocal(globalOffset);
+    for (int i = 0; i < _pageLayouts.length; i++) {
+      final layout = _pageLayouts[i];
+      if (localPosition.dy >= layout.top &&
+          localPosition.dy <= layout.bottom &&
+          localPosition.dx >= layout.left &&
+          localPosition.dx <= layout.right) {
+        print('Found page: $i at offset: $globalOffset');
+        return i;
+      }
+    }
+
+    print('No page found, returning current: ${_pageIndexNotifier.value}');
+    return _pageIndexNotifier.value;
+  }
+
+  /// Saves the edited PDF with the overlay image using syncfusion.
   Future<void> _savePDF() async {
     if (widget.imagePath == null) {
-      _showSnackBar('Vui lòng chọn hình ảnh để lưu');
+      _showSnackBar('Please select an image to save');
       return;
     }
 
+    final shouldSave = await _showSaveConfirmationDialog();
+    if (!shouldSave) return;
+
     setState(() => _isSaving = true);
 
+    syncfusion.PdfDocument? pdf;
     try {
-      final pdf = PdfDocument(inputBytes: await File(widget.filePath).readAsBytes());
+      pdf = syncfusion.PdfDocument(inputBytes: await File(widget.filePath).readAsBytes());
       final imageBytes = await File(widget.imagePath!).readAsBytes();
-      final pdfImage = PdfBitmap(imageBytes);
+      final pdfImage = syncfusion.PdfBitmap(imageBytes);
       final pdfPosition = _positionNotifier.value;
       final pdfSize = _convertToPdfSize(_currentWidth, _currentHeight);
-
-      print('Lưu PDF: Vị trí $pdfPosition, Kích thước $pdfSize, Trang ${_pageIndexNotifier.value}');
 
       final page = pdf.pages[_pageIndexNotifier.value];
       page.graphics.drawImage(
@@ -222,27 +240,50 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
       await newPdfFile.writeAsBytes(await pdf.save());
 
       if (mounted) {
-        _showSnackBar('Đã lưu PDF thành công');
+        _showSnackBar('PDF saved successfully at $newPdfPath');
         Navigator.pop(context, newPdfPath);
       }
     } catch (e) {
-      print('Lỗi lưu PDF: $e');
       if (mounted) {
-        _showSnackBar('Lỗi khi lưu PDF: $e');
+        _showSnackBar('Error saving PDF: $e');
       }
     } finally {
+      pdf?.dispose();
       if (mounted) {
         setState(() => _isSaving = false);
       }
     }
   }
 
+  /// Shows a confirmation dialog before saving the PDF.
+  Future<bool> _showSaveConfirmationDialog() async {
+    return await showDialog<bool>(
+          context: context,
+          builder: (context) => AlertDialog(
+            title: const Text('Save PDF'),
+            content: const Text('Do you want to save the edited PDF?'),
+            actions: [
+              TextButton(
+                onPressed: () => Navigator.pop(context, false),
+                child: const Text('Cancel'),
+              ),
+              TextButton(
+                onPressed: () => Navigator.pop(context, true),
+                child: const Text('Save'),
+              ),
+            ],
+          ),
+        ) ??
+        false;
+  }
+
+  /// Displays a snackbar with the given message.
   void _showSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
         content: Text(
           message,
-          style: TextStyle(color: Colors.white),
+          style: const TextStyle(color: Colors.white),
         ),
         backgroundColor: Colors.blue.shade700,
         behavior: SnackBarBehavior.floating,
@@ -253,11 +294,10 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
 
   @override
   void dispose() {
-    _pdfDocument.dispose();
+    _controller.removeListener(_onControllerChanged);
     _positionNotifier.dispose();
     _zoomNotifier.dispose();
     _pageIndexNotifier.dispose();
-    _pdfViewerController.dispose();
     super.dispose();
   }
 
@@ -265,8 +305,8 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          'Ký tài liệu',
+        title: const Text(
+          'Sign Document',
           style: TextStyle(fontWeight: FontWeight.bold),
         ),
         backgroundColor: Colors.blue.shade300,
@@ -274,27 +314,25 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
         centerTitle: true,
         actions: [
           IconButton(
-            icon: Icon(Icons.zoom_in, color: Colors.white),
             onPressed: () {
-              _zoomNotifier.value = (_zoomNotifier.value + 0.2).clamp(0.2, 2);
-              print('Phóng to: ${_zoomNotifier.value}');
+              _zoomNotifier.value = (_zoomNotifier.value + PdfConstants.zoomStep).clamp(0.2, 2);
             },
-            tooltip: 'Phóng to',
+            icon: const Icon(Icons.zoom_in, color: Colors.white),
+            tooltip: 'Zoom In Signature',
           ),
           IconButton(
-            icon: Icon(Icons.zoom_out, color: Colors.white),
             onPressed: () {
-              _zoomNotifier.value = (_zoomNotifier.value - 0.2).clamp(0.2, 2);
-              print('Thu nhỏ: ${_zoomNotifier.value}');
+              _zoomNotifier.value = (_zoomNotifier.value - PdfConstants.zoomStep).clamp(0.2, 2);
             },
-            tooltip: 'Thu nhỏ',
+            icon: const Icon(Icons.zoom_out, color: Colors.white),
+            tooltip: 'Zoom Out Signature',
           ),
           Padding(
             padding: const EdgeInsets.only(right: 8.0),
             child: ElevatedButton.icon(
               onPressed: _isSaving ? null : _savePDF,
               icon: _isSaving
-                  ? SizedBox(
+                  ? const SizedBox(
                       width: 16,
                       height: 16,
                       child: CircularProgressIndicator(
@@ -302,15 +340,15 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
                         color: Colors.white,
                       ),
                     )
-                  : Icon(Icons.save, size: 20, color: Colors.white),
-              label: Text('Lưu'),
+                  : const Icon(Icons.save, size: 20, color: Colors.white),
+              label: const Text('Save'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.blue.shade700,
                 foregroundColor: Colors.white,
                 shape: RoundedRectangleBorder(
                   borderRadius: BorderRadius.circular(12),
                 ),
-                padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+                padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               ),
             ),
           ),
@@ -330,34 +368,68 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     CircularProgressIndicator(color: Colors.blue.shade700),
-                    SizedBox(height: 16),
+                    const SizedBox(height: 16),
                     Text(
-                      'Đang tải PDF...',
+                      _errorMessage ?? 'Loading PDF...',
                       style: TextStyle(
                         color: Colors.blue.shade900,
                         fontSize: 16,
                         fontWeight: FontWeight.w500,
                       ),
                     ),
+                    if (_errorMessage != null)
+                      TextButton(
+                        onPressed: () {
+                          setState(() {
+                            _isLoading = true;
+                            _errorMessage = null;
+                          });
+                          _initialize();
+                        },
+                        child: const Text('Retry'),
+                      ),
                   ],
                 ),
               )
             : Stack(
                 children: [
-                  SfPdfViewer.file(
-                    File(widget.filePath),
+                  PdfViewer.file(
+                    widget.filePath,
                     key: _pdfViewerKey,
-                    controller: _pdfViewerController,
-                    onDocumentLoaded: (details) {
-                      setState(() {
-                        _totalPages = details.document.pages.count;
-                        print('PDF đã tải, tổng số trang: $_totalPages');
-                      });
-                    },
-                    onPageChanged: (details) {
-                      _pageIndexNotifier.value = details.newPageNumber - 1;
-                      print('Trang hiện tại: ${_pageIndexNotifier.value}');
-                    },
+                    controller: _controller,
+                    params: PdfViewerParams(
+                      margin: PdfConstants.margin.toDouble(),
+                      layoutPages: (pages, params) {
+                        double offsetY = 0;
+                        _pageLayouts = <Rect>[];
+                        for (var page in pages) {
+                          final rect = Rect.fromLTWH(0, offsetY, page.width, page.height);
+                          _pageLayouts.add(rect);
+                          offsetY += page.height + params.margin;
+                        }
+                        final documentHeight = pages.fold<double>(
+                              0,
+                              (sum, page) => sum + page.height + params.margin,
+                            ) - params.margin;
+                        final documentWidth = pages.isNotEmpty
+                            ? pages.map((page) => page.width).reduce((a, b) => a > b ? a : b)
+                            : 0.0;
+                        return PdfPageLayout(
+                          pageLayouts: _pageLayouts,
+                          documentSize: Size(documentWidth, documentHeight),
+                        );
+                      },
+                      onPageChanged: (pageNumber) {
+                        if (pageNumber != null && pageNumber - 1 != _pageIndexNotifier.value) {
+                          setState(() {
+                            _pageIndexNotifier.value = pageNumber - 1;
+                          });
+                          print('Page changed to: ${_pageIndexNotifier.value}');
+                        }
+                      },
+                    ),
+                    initialPageNumber: 1,
+                    passwordProvider: () async => null,
                   ),
                   if (widget.imagePath != null && File(widget.imagePath!).existsSync())
                     ValueListenableBuilder<int>(
@@ -366,70 +438,36 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
                         return ValueListenableBuilder<Offset>(
                           valueListenable: _positionNotifier,
                           builder: (context, position, child) {
-                            print('Hiển thị ảnh tại PDF: $position, trang: $pageIndex');
                             return ValueListenableBuilder<double>(
                               valueListenable: _zoomNotifier,
                               builder: (context, zoom, child) {
-                                final flutterPosition = _convertFromPdfToFlutterCoordinates(position, pageIndex);
-                                print('Vị trí Flutter: $flutterPosition');
+                                final flutterPosition =
+                                    _convertFromPdfToFlutterCoordinates(position, pageIndex);
                                 return Positioned(
                                   left: flutterPosition.dx,
                                   top: flutterPosition.dy,
                                   child: GestureDetector(
                                     onScaleUpdate: (details) {
                                       _zoomNotifier.value = (_zoomNotifier.value * details.scale).clamp(0.2, 2);
-                                      print('Zoom cập nhật: ${_zoomNotifier.value}');
                                     },
                                     child: Draggable(
                                       feedback: AnimatedOpacity(
                                         opacity: 0.7,
-                                        duration: Duration(milliseconds: 100),
+                                        duration: const Duration(milliseconds: 100),
                                         child: _buildImageContainer(zoom),
                                       ),
                                       childWhenDragging: Container(),
                                       onDragEnd: (details) {
-                                        final currentPageIndex = _pdfViewerController.pageNumber - 1;
-                                        final pageSizeInPixels = _pageSizes[currentPageIndex];
-                                        final newPosition = details.offset;
-
-                                        // Chuyển đổi vị trí từ Flutter sang tọa độ PDF
-                                        final pdfPosition = _convertToPdfCoordinates(newPosition, currentPageIndex);
-
-                                        // Kiểm tra nếu vị trí mới nằm ngoài phạm vi trang hiện tại
-                                        if (pdfPosition.dy > pageSizeInPixels.height && currentPageIndex < _totalPages - 1) {
-                                          // Ảnh được kéo xuống dưới cùng của trang hiện tại, chuyển sang trang tiếp theo
-                                          final nextPageIndex = currentPageIndex + 1;
-                                          final nextPageSize = _pageSizes[nextPageIndex];
-                                          final newPdfPosition = Offset(pdfPosition.dx, pdfPosition.dy - pageSizeInPixels.height);
-
-                                          setState(() {
-                                            _positionNotifier.value = newPdfPosition;
-                                            _pageIndexNotifier.value = nextPageIndex;
-                                            _pdfViewerController.jumpToPage(nextPageIndex + 1); // Chuyển sang trang tiếp theo
-                                          });
-                                          widget.onPositionChanged(newPdfPosition);
-                                          print('Chuyển sang trang tiếp theo: $nextPageIndex, vị trí mới: $newPdfPosition');
-                                        } else if (pdfPosition.dy < 0 && currentPageIndex > 0) {
-                                          // Ảnh được kéo lên trên cùng của trang hiện tại, chuyển sang trang trước
-                                          final previousPageIndex = currentPageIndex - 1;
-                                          final previousPageSize = _pageSizes[previousPageIndex];
-                                          final newPdfPosition = Offset(pdfPosition.dx, previousPageSize.height + pdfPosition.dy);
-
-                                          setState(() {
-                                            _positionNotifier.value = newPdfPosition;
-                                            _pageIndexNotifier.value = previousPageIndex;
-                                            _pdfViewerController.jumpToPage(previousPageIndex + 1); // Chuyển sang trang trước
-                                          });
-                                          widget.onPositionChanged(newPdfPosition);
-                                          print('Chuyển sang trang trước: $previousPageIndex, vị trí mới: $newPdfPosition');
-                                        } else {
-                                          // Vị trí mới vẫn trong phạm vi trang hiện tại
-                                          setState(() {
-                                            _positionNotifier.value = pdfPosition;
-                                          });
-                                          widget.onPositionChanged(pdfPosition);
-                                          print('Cập nhật vị trí trong trang hiện tại: $pdfPosition');
-                                        }
+                                        final newPageIndex = _findPageIndex(details.offset);
+                                        final pdfPosition =
+                                            _convertToPdfCoordinates(details.offset, newPageIndex);
+                                        setState(() {
+                                          _positionNotifier.value = pdfPosition;
+                                          _pageIndexNotifier.value = newPageIndex;
+                                        });
+                                        _controller.goToPage(pageNumber: newPageIndex + 1);
+                                        widget.onPositionChanged(pdfPosition);
+                                        print('Moved to page: $newPageIndex, Position: $pdfPosition');
                                       },
                                       child: _buildImageContainer(zoom),
                                     ),
@@ -447,8 +485,8 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
     );
   }
 
+  /// Builds the image container with zoom support.
   Widget _buildImageContainer(double zoom) {
-    print('Kích thước ảnh: ${_currentWidth * zoom} x ${_currentHeight * zoom}');
     return Container(
       width: _currentWidth * zoom,
       height: _currentHeight * zoom,
@@ -467,10 +505,9 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
           height: _currentHeight * zoom,
           fit: BoxFit.contain,
           errorBuilder: (context, error, stackTrace) {
-            print('Lỗi tải ảnh: $error');
             return Center(
               child: Text(
-                'Lỗi khi tải hình ảnh',
+                'Error loading image: $error',
                 style: TextStyle(color: Colors.red.shade700, fontSize: 12),
                 textAlign: TextAlign.center,
               ),
