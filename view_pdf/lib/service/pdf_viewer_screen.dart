@@ -36,7 +36,6 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
   late ValueNotifier<int> _pageIndexNotifier;
   late double _currentWidth;
   late double _currentHeight;
-  int _currentPage = 0;
   int _totalPages = 1;
   bool _isSaving = false;
   bool _isLoading = true;
@@ -49,7 +48,7 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
     super.initState();
     _positionNotifier = ValueNotifier(widget.imagePosition);
     _zoomNotifier = ValueNotifier(1.0);
-    _pageIndexNotifier = ValueNotifier(_currentPage);
+    _pageIndexNotifier = ValueNotifier(0);
     _currentWidth = widget.imageWidth;
     _currentHeight = widget.imageHeight;
     _initialize();
@@ -60,13 +59,13 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
       await _initializePdfDocument();
       setState(() => _isLoading = false);
       WidgetsBinding.instance.addPostFrameCallback((_) {
-        if (mounted && _pageKeys.isNotEmpty && _pageKeys[1].currentContext != null) {
-          Scrollable.ensureVisible(_pageKeys[1].currentContext!);
+        if (mounted && _pageKeys.isNotEmpty && _pageKeys[0].currentContext != null) {
+          Scrollable.ensureVisible(_pageKeys[0].currentContext!);
         }
       });
     } catch (e) {
       if (mounted) {
-        _showSnackBar('Lỗi khi khởi tạo PDF: $e');
+        _showSnackBar('Error initializing PDF: $e');
       }
     }
   }
@@ -92,31 +91,16 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
   }
 
   Offset _convertToPdfCoordinates(Offset flutterPosition, int pageIndex) {
-    if (_pageSizes.isEmpty || pageIndex < 0 || pageIndex >= _pageSizes.length) {
-      print('Invalid page index or empty page sizes: $pageIndex');
+    if (_pageSizes.isEmpty || pageIndex >= _pageSizes.length) {
       return flutterPosition;
     }
 
     final pageSize = _pageSizes[pageIndex];
     final context = _pageKeys[pageIndex].currentContext;
+    if (context == null || !mounted) return flutterPosition;
 
-    if (context == null) {
-      print('Context is null for page $pageIndex');
-      return flutterPosition;
-    }
-
-    RenderBox? renderBox;
-    try {
-      renderBox = context.findRenderObject() as RenderBox?;
-    } catch (e) {
-      print('Error getting renderObject for page $pageIndex: $e');
-      return flutterPosition;
-    }
-
-    if (renderBox == null) {
-      print('RenderBox not found for page $pageIndex');
-      return flutterPosition;
-    }
+    final renderBox = context.findRenderObject() as RenderBox?;
+    if (renderBox == null) return flutterPosition;
 
     final pageSizeInPixels = renderBox.size;
     final scaleX = pageSizeInPixels.width > 0 ? pageSize.width / pageSizeInPixels.width : 1.0;
@@ -127,7 +111,7 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
     final double pdfX = (localPosition.dx * scaleX).clamp(0, pageSize.width);
     final double pdfY = (pageSize.height - (adjustedDy * scaleY)).clamp(0, pageSize.height);
 
-    print('Page $pageIndex:');
+    print('Coordinate conversion:');
     print('  pageSize: $pageSize');
     print('  pageSizeInPixels: $pageSizeInPixels');
     print('  scaleX: $scaleX, scaleY: $scaleY');
@@ -140,27 +124,15 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
   }
 
   Offset _convertFromPdfToFlutterCoordinates(Offset pdfPosition, int pageIndex) {
-    if (_pageSizes.isEmpty || pageIndex < 0 || pageIndex >= _pageSizes.length) {
+    if (_pageSizes.isEmpty || pageIndex >= _pageSizes.length) {
       return pdfPosition;
     }
     final pageSize = _pageSizes[pageIndex];
     final context = _pageKeys[pageIndex].currentContext;
+    if (context == null) return pdfPosition;
 
-    if (context == null) {
-      return pdfPosition;
-    }
-
-    RenderBox? renderBox;
-    try {
-      renderBox = context.findRenderObject() as RenderBox?;
-    } catch (e) {
-      print('Error getting renderObject for page $pageIndex: $e');
-      return pdfPosition;
-    }
-
-    if (renderBox == null) {
-      return pdfPosition;
-    }
+    final renderBox = context.findRenderObject() as RenderBox?;
+    if (renderBox == null) return pdfPosition;
 
     final pageSizeInPixels = renderBox.size;
     final scaleX = pageSizeInPixels.width > 0 ? pageSize.width / pageSizeInPixels.width : 1.0;
@@ -180,7 +152,7 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
 
   Future<void> _savePDF() async {
     if (widget.imagePath == null) {
-      _showSnackBar('Vui lòng chọn hình ảnh để lưu');
+      _showSnackBar('Please select an image to save');
       return;
     }
 
@@ -193,16 +165,12 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
 
       final pdfPosition = _convertToPdfCoordinates(_positionNotifier.value, _pageIndexNotifier.value);
       final pdfSize = _convertToPdfSize(_currentWidth, _currentHeight);
-      final isJpg = widget.imagePath!.toLowerCase().endsWith('.jpg') ||
-          widget.imagePath!.toLowerCase().endsWith('.jpeg');
-
-      print('Saving PDF: pdfPosition: $pdfPosition, pdfSize: $pdfSize, pageIndex: ${_pageIndexNotifier.value}');
 
       for (int i = 1; i <= _totalPages; i++) {
         final page = await _pdfDocument.getPage(i);
         final pageImage = await page.render(
-          width: page.width,
-          height: page.height,
+          width: page.width * 2, 
+          height: page.height * 2,
         );
         final pageBytes = pageImage!.bytes;
 
@@ -212,12 +180,10 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
             build: (pw.Context context) {
               return pw.Stack(
                 children: [
-                  pw.Image(pw.MemoryImage(pageBytes)),
+                  pw.Image(pw.MemoryImage(pageBytes), fit: pw.BoxFit.contain),
                   if (context.pageNumber == _pageIndexNotifier.value + 1)
                     pw.Positioned(
-                      left: isJpg
-                          ? pdfPosition.dx + (20 * _zoomNotifier.value)
-                          : pdfPosition.dx + _zoomNotifier.value,
+                      left: pdfPosition.dx,
                       bottom: pdfPosition.dy - pdfSize.height,
                       child: pw.Image(
                         overlayImage,
@@ -234,18 +200,17 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
       }
 
       final outputDir = await getApplicationDocumentsDirectory();
-      final newPdfPath =
-          "${outputDir.path}/edited_${DateTime.now().millisecondsSinceEpoch}.pdf";
+      final newPdfPath = "${outputDir.path}/edited_${DateTime.now().millisecondsSinceEpoch}.pdf";
       final newPdfFile = File(newPdfPath);
       await newPdfFile.writeAsBytes(await pdf.save());
 
       if (mounted) {
-        _showSnackBar('Đã lưu PDF thành công');
+        _showSnackBar('PDF saved successfully');
         Navigator.pop(context, newPdfPath);
       }
     } catch (e) {
       if (mounted) {
-        _showSnackBar('Lỗi khi lưu PDF: $e');
+        _showSnackBar('Error saving PDF: $e');
       }
     } finally {
       if (mounted) {
@@ -257,10 +222,7 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
   void _showSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
-        content: Text(
-          message,
-          style: TextStyle(color: Colors.white),
-        ),
+        content: Text(message, style: TextStyle(color: Colors.white)),
         backgroundColor: Colors.blue.shade700,
         behavior: SnackBarBehavior.floating,
         shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
@@ -281,10 +243,7 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
   Widget build(BuildContext context) {
     return Scaffold(
       appBar: AppBar(
-        title: Text(
-          'Ký tài liệu',
-          style: TextStyle(fontWeight: FontWeight.bold),
-        ),
+        title: Text('Sign Document', style: TextStyle(fontWeight: FontWeight.bold)),
         backgroundColor: Colors.blue.shade300,
         elevation: 0,
         centerTitle: true,
@@ -294,14 +253,14 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
             onPressed: () {
               _zoomNotifier.value = (_zoomNotifier.value + 0.2).clamp(0.2, 2);
             },
-            tooltip: 'Phóng to',
+            tooltip: 'Zoom In',
           ),
           IconButton(
             icon: Icon(Icons.zoom_out, color: Colors.white),
             onPressed: () {
               _zoomNotifier.value = (_zoomNotifier.value - 0.2).clamp(0.2, 2);
             },
-            tooltip: 'Thu nhỏ',
+            tooltip: 'Zoom Out',
           ),
           Padding(
             padding: const EdgeInsets.only(right: 8.0),
@@ -311,19 +270,14 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
                   ? SizedBox(
                       width: 16,
                       height: 16,
-                      child: CircularProgressIndicator(
-                        strokeWidth: 2,
-                        color: Colors.white,
-                      ),
+                      child: CircularProgressIndicator(strokeWidth: 2, color: Colors.white),
                     )
                   : Icon(Icons.save, size: 20, color: Colors.white),
-              label: Text('Lưu'),
+              label: Text('Save'),
               style: ElevatedButton.styleFrom(
                 backgroundColor: Colors.blue.shade700,
                 foregroundColor: Colors.white,
-                shape: RoundedRectangleBorder(
-                  borderRadius: BorderRadius.circular(12),
-                ),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                 padding: EdgeInsets.symmetric(horizontal: 12, vertical: 8),
               ),
             ),
@@ -346,7 +300,7 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
                     CircularProgressIndicator(color: Colors.blue.shade700),
                     SizedBox(height: 16),
                     Text(
-                      'Đang tải PDF...',
+                      'Loading PDF...',
                       style: TextStyle(
                         color: Colors.blue.shade900,
                         fontSize: 16,
@@ -360,12 +314,11 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
                 key: _listViewKey,
                 itemCount: _totalPages,
                 itemBuilder: (context, index) {
+                  _pageKeys[index] = GlobalKey();
                   return Card(
                     margin: EdgeInsets.symmetric(horizontal: 16, vertical: 8),
                     elevation: 4,
-                    shape: RoundedRectangleBorder(
-                      borderRadius: BorderRadius.circular(12),
-                    ),
+                    shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(12),
                       child: Stack(
@@ -376,15 +329,13 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
                               if (snapshot.connectionState == ConnectionState.waiting) {
                                 return Container(
                                   height: 400,
-                                  child: Center(
-                                    child: CircularProgressIndicator(color: Colors.blue.shade700),
-                                  ),
+                                  child: Center(child: CircularProgressIndicator(color: Colors.blue.shade700)),
                                 );
                               }
                               if (snapshot.hasError) {
                                 return Center(
                                   child: Text(
-                                    'Lỗi khi tải trang ${index + 1}',
+                                    'Error loading page ${index + 1}',
                                     style: TextStyle(color: Colors.red.shade700),
                                   ),
                                 );
@@ -395,6 +346,7 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
                                   snapshot.data!.bytes,
                                   fit: BoxFit.contain,
                                   width: double.infinity,
+                                  scale: 1 / _zoomNotifier.value, 
                                 ),
                               );
                             },
@@ -428,22 +380,14 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
                                               onDragEnd: (details) {
                                                 int newPageIndex = _findPageIndex(details.offset);
                                                 final context = _pageKeys[newPageIndex].currentContext;
-                                                if (context != null) {
-                                                  RenderBox? renderBox;
-                                                  try {
-                                                    renderBox = context.findRenderObject() as RenderBox?;
-                                                  } catch (e) {
-                                                    print('Error getting renderObject for page $newPageIndex: $e');
-                                                    return;
-                                                  }
+                                                if (context != null && context.mounted) {
+                                                  final renderBox = context.findRenderObject() as RenderBox?;
                                                   if (renderBox != null) {
-                                                    final localOffset = renderBox.globalToLocal(details.offset);
-                                                    print('onDragEnd: globalOffset: ${details.offset}, localOffset: $localOffset, page: $newPageIndex');
+                                                     renderBox.globalToLocal(details.offset);
                                                     final pdfPosition = _convertToPdfCoordinates(details.offset, newPageIndex);
                                                     _positionNotifier.value = pdfPosition;
                                                     _pageIndexNotifier.value = newPageIndex;
                                                     widget.onPositionChanged(pdfPosition);
-                                                    print('New position: $pdfPosition, page: $newPageIndex');
                                                   }
                                                 }
                                               },
@@ -470,8 +414,8 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
   Future<px.PdfPageImage> _renderPage(int pageNumber) async {
     final page = await _pdfDocument.getPage(pageNumber);
     final pageImage = await page.render(
-      width: page.width,
-      height: page.height,
+      width: page.width * 2, 
+      height: page.height * 2,
     );
     await page.close();
     return pageImage!;
@@ -480,32 +424,19 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
   int _findPageIndex(Offset globalOffset) {
     for (int i = 0; i < _pageKeys.length; i++) {
       final context = _pageKeys[i].currentContext;
-      if (context == null) {
-        print('Context is null for page $i');
-        continue;
-      }
+      if (context == null || !context.mounted ) continue;
 
-      RenderBox? renderBox;
-      try {
-        renderBox = context.findRenderObject() as RenderBox?;
-      } catch (e) {
-        print('Error getting renderObject for page $i: $e');
-        continue;
-      }
-
+      final renderBox = context.findRenderObject() as RenderBox?;
       if (renderBox != null) {
         final position = renderBox.globalToLocal(globalOffset);
-        print('Checking page $i: position: $position, size: ${renderBox.size}');
         if (position.dx >= 0 &&
             position.dx <= renderBox.size.width &&
             position.dy >= 0 &&
             position.dy <= renderBox.size.height) {
-          print('Found page: $i');
           return i;
         }
       }
     }
-    print('No page found, returning current: ${_pageIndexNotifier.value}');
     return _pageIndexNotifier.value;
   }
 
@@ -514,10 +445,7 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
       width: _currentWidth * zoom,
       height: _currentHeight * zoom,
       decoration: BoxDecoration(
-        border: Border.all(
-          color: Colors.blue.shade700,
-          width: 2,
-        ),
+        border: Border.all(color: Colors.blue.shade700, width: 2),
         borderRadius: BorderRadius.circular(12),
       ),
       child: ClipRRect(
@@ -530,7 +458,7 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
           errorBuilder: (context, error, stackTrace) {
             return Center(
               child: Text(
-                'Lỗi khi tải hình ảnh',
+                'Error loading image',
                 style: TextStyle(color: Colors.red.shade700, fontSize: 12),
                 textAlign: TextAlign.center,
               ),
