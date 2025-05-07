@@ -4,6 +4,9 @@ import 'package:image_picker/image_picker.dart';
 import 'package:open_file/open_file.dart';
 import 'package:view_pdf/page/signature_pad.dart';
 import 'package:view_pdf/service/pdf_viewer_screen.dart';
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
+import 'dart:io';
 
 class HomeScreen extends StatefulWidget {
   @override
@@ -17,6 +20,19 @@ class _HomeScreenState extends State<HomeScreen> {
   double _imageWidth = 100;
   double _imageHeight = 100;
   bool _isProcessing = false;
+  TextEditingController _fileNameController = TextEditingController();
+
+  @override
+  void initState() {
+    super.initState();
+    // No listener needed here; we'll manage text updates in _pickPDF and _viewPDF
+  }
+
+  @override
+  void dispose() {
+    _fileNameController.dispose();
+    super.dispose();
+  }
 
   // Choose file PDF from device
   Future<void> _pickPDF() async {
@@ -28,6 +44,7 @@ class _HomeScreenState extends State<HomeScreen> {
     if (result != null && mounted) {
       setState(() {
         _pdfPath = result.files.single.path;
+        _fileNameController.text = _pdfPath!.split('/').last;
       });
     }
   }
@@ -89,6 +106,7 @@ class _HomeScreenState extends State<HomeScreen> {
       if (result != null && mounted) {
         setState(() {
           _pdfPath = result;
+          _fileNameController.text = _pdfPath!.split('/').last;
           _imagePath = null;
         });
       }
@@ -103,6 +121,42 @@ class _HomeScreenState extends State<HomeScreen> {
   void _openPDF() {
     if (_pdfPath != null) {
       OpenFile.open(_pdfPath!);
+    } else {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text('Vui lòng chọn một file PDF')),
+      );
+    }
+  }
+
+  // Download/Share PDF file
+  Future<void> _downloadPDF() async {
+    if (_pdfPath != null) {
+      try {
+        setState(() {
+          _isProcessing = true;
+        });
+        final file = File(_pdfPath!);
+        final tempDir = await getTemporaryDirectory();
+        final newFileName = _fileNameController.text.isEmpty
+            ? _pdfPath!.split('/').last
+            : _fileNameController.text.endsWith('.pdf')
+                ? _fileNameController.text
+                : '${_fileNameController.text}.pdf';
+        final newPath = '${tempDir.path}/$newFileName';
+        await file.copy(newPath);
+        await Share.shareXFiles([XFile(newPath)],
+            text: 'Here is your PDF file: $newFileName');
+      } catch (e) {
+        ScaffoldMessenger.of(context).showSnackBar(
+          SnackBar(content: Text('Lỗi khi tải xuống: $e')),
+        );
+      } finally {
+        if (mounted) {
+          setState(() {
+            _isProcessing = false;
+          });
+        }
+      }
     } else {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Vui lòng chọn một file PDF')),
@@ -199,6 +253,7 @@ class _HomeScreenState extends State<HomeScreen> {
                           onPressed: () {
                             setState(() {
                               _pdfPath = null;
+                              _fileNameController.clear();
                             });
                           },
                         ),
@@ -294,23 +349,35 @@ class _HomeScreenState extends State<HomeScreen> {
                     border: Border.all(color: Colors.grey.shade300),
                     borderRadius: BorderRadius.circular(8),
                   ),
-                  child: Row(
+                  child: Column(
                     children: [
-                      Expanded(
-                        child: Text(
-                          _pdfPath != null ? _pdfPath!.split('/').last : 'Chưa chọn tệp PDF',
-                          style: TextStyle(color: Colors.black54),
-                          overflow: TextOverflow.ellipsis,
+                      TextField(
+                        controller: _fileNameController,
+                        decoration: InputDecoration(
+                          hintText: _pdfPath != null ? _pdfPath!.split('/').last : 'Chưa chọn tệp PDF',
+                          border: InputBorder.none,
                         ),
+                        style: TextStyle(color: Colors.black87),
+                        enabled: _pdfPath != null,
                       ),
                       if (_pdfPath != null)
-                        IconButton(
-                          icon: Icon(Icons.delete, color: Colors.red),
-                          onPressed: () {
-                            setState(() {
-                              _pdfPath = null;
-                            });
-                          },
+                        Row(
+                          mainAxisAlignment: MainAxisAlignment.end,
+                          children: [
+                            IconButton(
+                              icon: Icon(Icons.download, color: Colors.blue),
+                              onPressed: _isProcessing ? null : _downloadPDF,
+                            ),
+                            IconButton(
+                              icon: Icon(Icons.delete, color: Colors.red),
+                              onPressed: () {
+                                setState(() {
+                                  _pdfPath = null;
+                                  _fileNameController.clear();
+                                });
+                              },
+                            ),
+                          ],
                         ),
                     ],
                   ),
