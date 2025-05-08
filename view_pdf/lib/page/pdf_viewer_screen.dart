@@ -30,7 +30,7 @@ class PDFViewerScreen extends StatefulWidget {
 }
 
 class _PDFViewerScreenState extends State<PDFViewerScreen> {
-   GlobalKey _listViewKey = GlobalKey();
+  GlobalKey _listViewKey = GlobalKey();
   late ValueNotifier<Offset> _positionNotifier;
   late ValueNotifier<double> _zoomNotifier;
   late ValueNotifier<int> _pageIndexNotifier;
@@ -51,7 +51,7 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
   }
 
   void _resetState() {
-    _listViewKey = GlobalKey();
+  _listViewKey = GlobalKey();
   _positionNotifier = ValueNotifier(widget.imagePosition);
   _zoomNotifier = ValueNotifier(1.0);
   _pageIndexNotifier = ValueNotifier(0);
