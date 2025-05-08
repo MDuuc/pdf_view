@@ -70,6 +70,8 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
     }
   }
 
+// Loads the PDF file, retrieves the total number of pages, and calculates the size of each page.
+// Creates global keys for each page to track their positions in the UI.
   Future<void> _initializePdfDocument() async {
     try {
       final pdfFile = File(widget.filePath);
@@ -90,6 +92,8 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
     }
   }
 
+// Converts Flutter widget coordinates to PDF coordinates for accurate placement of the overlay image.
+// Takes into account the page size, scaling, and rendering context.
   Offset _convertToPdfCoordinates(Offset flutterPosition, int pageIndex) {
     if (_pageSizes.isEmpty || pageIndex >= _pageSizes.length) {
       return flutterPosition;
@@ -123,6 +127,8 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
     return Offset(pdfX, pdfY);
   }
 
+// Converts PDF coordinates back to Flutter widget coordinates for rendering the overlay image
+// in the correct position on the screen.
   Offset _convertFromPdfToFlutterCoordinates(Offset pdfPosition, int pageIndex) {
     if (_pageSizes.isEmpty || pageIndex >= _pageSizes.length) {
       return pdfPosition;
@@ -143,6 +149,8 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
     return Offset(flutterX, flutterY);
   }
 
+// Converts the image size from Flutter dimensions to PDF dimensions, applying a DPI factor
+// and zoom level, ensuring the size stays within page boundaries.
   Size _convertToPdfSize(double width, double height) {
     const double dpiFactor = 1.5;
     final double pdfWidth = (width * dpiFactor * _zoomNotifier.value).clamp(50, _pageSizes[_pageIndexNotifier.value].width);
@@ -150,6 +158,8 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
     return Size(pdfWidth, pdfHeight);
   }
 
+// Saves the modified PDF with the overlay image placed on the specified page at the specified position.
+// Creates a new PDF file and writes it to the application documents directory.
   Future<void> _savePDF() async {
     if (widget.imagePath == null) {
       _showSnackBar('Please select an image to save');
@@ -219,6 +229,7 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
     }
   }
 
+// Displays a snackbar with the provided message, styled with a blue background and rounded corners.
   void _showSnackBar(String message) {
     ScaffoldMessenger.of(context).showSnackBar(
       SnackBar(
@@ -230,6 +241,69 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
     );
   }
 
+
+// Renders a specific PDF page as an image for display in the UI Closes the page after rendering.
+  Future<px.PdfPageImage> _renderPage(int pageNumber) async {
+    final page = await _pdfDocument.getPage(pageNumber);
+    final pageImage = await page.render(
+      width: page.width,
+      height: page.height,
+    );
+    await page.close();
+    return pageImage!;
+  }
+
+// Determines which PDF page the dragged image is over based on the global offset.
+// Returns the index of the page or the current page if no valid page is found.
+  int _findPageIndex(Offset globalOffset) {
+    for (int i = 0; i < _pageKeys.length; i++) {
+      final context = _pageKeys[i].currentContext;
+      if (context == null || !context.mounted ) continue;
+
+      final renderBox = context.findRenderObject() as RenderBox?;
+      if (renderBox != null) {
+        final position = renderBox.globalToLocal(globalOffset);
+        if (position.dx >= 0 &&
+            position.dx <= renderBox.size.width &&
+            position.dy >= 0 &&
+            position.dy <= renderBox.size.height) {
+          return i;
+        }
+      }
+    }
+    return _pageIndexNotifier.value;
+  }
+
+// Builds the container for the overlay image, applying zoom, borders, and rounded corners.
+// Handles image loading errors gracefully.
+  Widget _buildImageContainer(double zoom) {
+    return Container(
+      width: _currentWidth * zoom,
+      height: _currentHeight * zoom,
+      decoration: BoxDecoration(
+        border: Border.all(color: Colors.blue.shade700, width: 2),
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(10),
+        child: Image.file(
+          File(widget.imagePath!),
+          width: _currentWidth * zoom,
+          height: _currentHeight * zoom,
+          fit: BoxFit.contain,
+          errorBuilder: (context, error, stackTrace) {
+            return Center(
+              child: Text(
+                'Error loading image',
+                style: TextStyle(color: Colors.red.shade700, fontSize: 12),
+                textAlign: TextAlign.center,
+              ),
+            );
+          },
+        ),
+      ),
+    );
+  }
   @override
   void dispose() {
     _pdfDocument.close();
@@ -407,64 +481,6 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
                   );
                 },
               ),
-      ),
-    );
-  }
-
-  Future<px.PdfPageImage> _renderPage(int pageNumber) async {
-    final page = await _pdfDocument.getPage(pageNumber);
-    final pageImage = await page.render(
-      width: page.width * 2, 
-      height: page.height * 2,
-    );
-    await page.close();
-    return pageImage!;
-  }
-
-  int _findPageIndex(Offset globalOffset) {
-    for (int i = 0; i < _pageKeys.length; i++) {
-      final context = _pageKeys[i].currentContext;
-      if (context == null || !context.mounted ) continue;
-
-      final renderBox = context.findRenderObject() as RenderBox?;
-      if (renderBox != null) {
-        final position = renderBox.globalToLocal(globalOffset);
-        if (position.dx >= 0 &&
-            position.dx <= renderBox.size.width &&
-            position.dy >= 0 &&
-            position.dy <= renderBox.size.height) {
-          return i;
-        }
-      }
-    }
-    return _pageIndexNotifier.value;
-  }
-
-  Widget _buildImageContainer(double zoom) {
-    return Container(
-      width: _currentWidth * zoom,
-      height: _currentHeight * zoom,
-      decoration: BoxDecoration(
-        border: Border.all(color: Colors.blue.shade700, width: 2),
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(10),
-        child: Image.file(
-          File(widget.imagePath!),
-          width: _currentWidth * zoom,
-          height: _currentHeight * zoom,
-          fit: BoxFit.contain,
-          errorBuilder: (context, error, stackTrace) {
-            return Center(
-              child: Text(
-                'Error loading image',
-                style: TextStyle(color: Colors.red.shade700, fontSize: 12),
-                textAlign: TextAlign.center,
-              ),
-            );
-          },
-        ),
       ),
     );
   }

@@ -2,8 +2,8 @@ import 'package:flutter/material.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:image_picker/image_picker.dart';
 import 'package:open_file/open_file.dart';
+import 'package:view_pdf/page/pdf_viewer_screen.dart';
 import 'package:view_pdf/page/signature_pad.dart';
-import 'package:view_pdf/service/pdf_viewer_screen.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 import 'dart:io';
@@ -25,7 +25,6 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
-    // No listener needed here; we'll manage text updates in _pickPDF and _viewPDF
   }
 
   @override
