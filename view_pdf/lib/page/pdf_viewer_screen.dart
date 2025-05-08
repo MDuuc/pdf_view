@@ -30,7 +30,7 @@ class PDFViewerScreen extends StatefulWidget {
 }
 
 class _PDFViewerScreenState extends State<PDFViewerScreen> {
-  final GlobalKey _listViewKey = GlobalKey();
+   GlobalKey _listViewKey = GlobalKey();
   late ValueNotifier<Offset> _positionNotifier;
   late ValueNotifier<double> _zoomNotifier;
   late ValueNotifier<int> _pageIndexNotifier;
@@ -46,13 +46,23 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
   @override
   void initState() {
     super.initState();
-    _positionNotifier = ValueNotifier(widget.imagePosition);
-    _zoomNotifier = ValueNotifier(1.0);
-    _pageIndexNotifier = ValueNotifier(0);
-    _currentWidth = widget.imageWidth;
-    _currentHeight = widget.imageHeight;
-    _initialize();
+    _resetState();
+  _initialize();
   }
+
+  void _resetState() {
+    _listViewKey = GlobalKey();
+  _positionNotifier = ValueNotifier(widget.imagePosition);
+  _zoomNotifier = ValueNotifier(1.0);
+  _pageIndexNotifier = ValueNotifier(0);
+  _currentWidth = widget.imageWidth;
+  _currentHeight = widget.imageHeight;
+  _pageSizes = [];
+  _pageKeys = [];
+  _totalPages = 1;
+  _isLoading = true;
+  _isSaving = false;
+}
 
   Future<void> _initialize() async {
     try {
@@ -112,8 +122,9 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
 
     final localPosition = renderBox.globalToLocal(flutterPosition);
     final adjustedDy = localPosition.dy.clamp(0.0, pageSizeInPixels.height);
-    final double pdfX = (localPosition.dx * scaleX).clamp(0, pageSize.width);
-    final double pdfY = (pageSize.height - (adjustedDy * scaleY)).clamp(0, pageSize.height);
+    final pdfSize = _convertToPdfSize(_currentWidth, _currentHeight);
+    final double pdfX = (localPosition.dx * scaleX).clamp(0, pageSize.width - pdfSize.width);
+    final double pdfY = (pageSize.height - (adjustedDy * scaleY)).clamp(pdfSize.height, pageSize.height);
 
     print('Coordinate conversion:');
     print('  pageSize: $pageSize');
@@ -194,7 +205,7 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
                   if (context.pageNumber == _pageIndexNotifier.value + 1)
                     pw.Positioned(
                       left: pdfPosition.dx,
-                      bottom: pdfPosition.dy - pdfSize.height,
+                      bottom: pdfPosition.dy - 0.84*pdfSize.height,
                       child: pw.Image(
                         overlayImage,
                         width: pdfSize.width,
@@ -215,6 +226,10 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
       await newPdfFile.writeAsBytes(await pdf.save());
 
       if (mounted) {
+      widget.onPositionChanged(Offset(50, 50));
+      widget.onSizeChanged(100, 100);
+      _pdfDocument.close();
+      _resetState();
         _showSnackBar('PDF saved successfully');
         Navigator.pop(context, newPdfPath);
       }
@@ -255,24 +270,26 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
 
 // Determines which PDF page the dragged image is over based on the global offset.
 // Returns the index of the page or the current page if no valid page is found.
-  int _findPageIndex(Offset globalOffset) {
-    for (int i = 0; i < _pageKeys.length; i++) {
-      final context = _pageKeys[i].currentContext;
-      if (context == null || !context.mounted ) continue;
+int _findPageIndex(Offset globalOffset) {
+  for (int i = 0; i < _pageKeys.length; i++) {
+    final context = _pageKeys[i].currentContext;
+    if (context == null || !context.mounted) continue;
 
-      final renderBox = context.findRenderObject() as RenderBox?;
-      if (renderBox != null) {
-        final position = renderBox.globalToLocal(globalOffset);
-        if (position.dx >= 0 &&
-            position.dx <= renderBox.size.width &&
-            position.dy >= 0 &&
-            position.dy <= renderBox.size.height) {
-          return i;
-        }
+    final renderBox = context.findRenderObject() as RenderBox?;
+    if (renderBox != null) {
+      final position = renderBox.globalToLocal(globalOffset);
+      if (position.dx >= 0 &&
+          position.dx <= renderBox.size.width &&
+          position.dy >= 0 &&
+          position.dy <= renderBox.size.height) {
+        print("Image is on page: ${i + 1}"); 
+        return i;
       }
     }
-    return _pageIndexNotifier.value;
   }
+  print("No matching page found, returning current page: ${_pageIndexNotifier.value + 1}");
+  return _pageIndexNotifier.value;
+}
 
 // Builds the container for the overlay image, applying zoom, borders, and rounded corners.
 // Handles image loading errors gracefully.
@@ -386,6 +403,7 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
               )
             : ListView.builder(
                 key: _listViewKey,
+                // key: ValueKey(widget.filePath), 
                 itemCount: _totalPages,
                 itemBuilder: (context, index) {
                   _pageKeys[index] = GlobalKey();

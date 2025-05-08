@@ -369,7 +369,9 @@ class _HomeScreenState extends State<HomeScreen> {
                             ),
                             IconButton(
                               icon: Icon(Icons.delete, color: Colors.red),
-                              onPressed: () {
+                              onPressed: () async{
+                                final file = File(_pdfPath!);
+                                await file.delete();
                                 setState(() {
                                   _pdfPath = null;
                                   _fileNameController.clear();
