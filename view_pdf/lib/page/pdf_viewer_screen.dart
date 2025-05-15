@@ -1,5 +1,6 @@
 import 'dart:io';
 import 'package:flutter/material.dart';
+import 'package:flutter_svg/svg.dart';
 import 'package:pdf/pdf.dart';
 import 'package:pdf/widgets.dart' as pw;
 import 'package:path_provider/path_provider.dart';
@@ -169,80 +170,87 @@ class _PDFViewerScreenState extends State<PDFViewerScreen> {
     return Size(pdfWidth, pdfHeight);
   }
 
+  // Đọc nội dung SVG từ file
+Future<String> _readSvgContent(String svgPath) async {
+  final file = File(svgPath);
+  return await file.readAsString();
+}
+
 // Saves the modified PDF with the overlay image placed on the specified page at the specified position.
 // Creates a new PDF file and writes it to the application documents directory.
-  Future<void> _savePDF() async {
-    if (widget.imagePath == null) {
-      _showSnackBar('Please select an image to save');
-      return;
+Future<void> _savePDF() async {
+  if (widget.imagePath == null) {
+    _showSnackBar('Please select an SVG file to save');
+    return;
+  }
+
+  setState(() => _isSaving = true);
+
+  try {
+    final pdf = pw.Document();
+
+    // Đọc nội dung SVG
+    final svgContent = await _readSvgContent(widget.imagePath!);
+
+    final pdfPosition = _convertToPdfCoordinates(_positionNotifier.value, _pageIndexNotifier.value);
+    final pdfSize = _convertToPdfSize(_currentWidth, _currentHeight);
+
+    for (int i = 1; i <= _totalPages; i++) {
+      final page = await _pdfDocument.getPage(i);
+      final pageImage = await page.render(
+        width: page.width * 2,
+        height: page.height * 2,
+      );
+      final pageBytes = pageImage!.bytes;
+
+      pdf.addPage(
+        pw.Page(
+          pageFormat: PdfPageFormat(page.width, page.height),
+          build: (pw.Context context) {
+            return pw.Stack(
+              children: [
+                pw.Image(pw.MemoryImage(pageBytes), fit: pw.BoxFit.contain),
+                if (context.pageNumber == _pageIndexNotifier.value + 1)
+                  pw.Positioned(
+                    left: pdfPosition.dx,
+                    bottom: pdfPosition.dy - 0.84 * pdfSize.height,
+                    child: pw.SvgImage(
+                      svg: svgContent,
+                      width: pdfSize.width,
+                      height: pdfSize.height,
+                    ),
+                  ),
+              ],
+            );
+          },
+        ),
+      );
+      await page.close();
     }
 
-    setState(() => _isSaving = true);
+    final outputDir = await getApplicationDocumentsDirectory();
+    final newPdfPath = "${outputDir.path}/edited_${DateTime.now().millisecondsSinceEpoch}.pdf";
+    final newPdfFile = File(newPdfPath);
+    await newPdfFile.writeAsBytes(await pdf.save());
 
-    try {
-      final pdf = pw.Document();
-      final imageBytes = await File(widget.imagePath!).readAsBytes();
-      final pw.MemoryImage overlayImage = pw.MemoryImage(imageBytes);
-
-      final pdfPosition = _convertToPdfCoordinates(_positionNotifier.value, _pageIndexNotifier.value);
-      final pdfSize = _convertToPdfSize(_currentWidth, _currentHeight);
-
-      for (int i = 1; i <= _totalPages; i++) {
-        final page = await _pdfDocument.getPage(i);
-        final pageImage = await page.render(
-          width: page.width * 2, 
-          height: page.height * 2,
-        );
-        final pageBytes = pageImage!.bytes;
-
-        pdf.addPage(
-          pw.Page(
-            pageFormat: PdfPageFormat(page.width, page.height),
-            build: (pw.Context context) {
-              return pw.Stack(
-                children: [
-                  pw.Image(pw.MemoryImage(pageBytes), fit: pw.BoxFit.contain),
-                  if (context.pageNumber == _pageIndexNotifier.value + 1)
-                    pw.Positioned(
-                      left: pdfPosition.dx,
-                      bottom: pdfPosition.dy - 0.84*pdfSize.height,
-                      child: pw.Image(
-                        overlayImage,
-                        width: pdfSize.width,
-                        height: pdfSize.height,
-                      ),
-                    ),
-                ],
-              );
-            },
-          ),
-        );
-        await page.close();
-      }
-
-      final outputDir = await getApplicationDocumentsDirectory();
-      final newPdfPath = "${outputDir.path}/edited_${DateTime.now().millisecondsSinceEpoch}.pdf";
-      final newPdfFile = File(newPdfPath);
-      await newPdfFile.writeAsBytes(await pdf.save());
-
-      if (mounted) {
+    if (mounted) {
       widget.onPositionChanged(Offset(50, 50));
       widget.onSizeChanged(100, 100);
       _pdfDocument.close();
       _resetState();
-        _showSnackBar('PDF saved successfully');
-        Navigator.pop(context, newPdfPath);
-      }
-    } catch (e) {
-      if (mounted) {
-        _showSnackBar('Error saving PDF: $e');
-      }
-    } finally {
-      if (mounted) {
-        setState(() => _isSaving = false);
-      }
+      _showSnackBar('PDF saved successfully');
+      Navigator.pop(context, newPdfPath);
+    }
+  } catch (e) {
+    if (mounted) {
+      _showSnackBar('Error saving PDF: $e');
+    }
+  } finally {
+    if (mounted) {
+      setState(() => _isSaving = false);
     }
   }
+}
 
 // Displays a snackbar with the provided message, styled with a blue background and rounded corners.
   void _showSnackBar(String message) {
@@ -303,7 +311,7 @@ int _findPageIndex(Offset globalOffset) {
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(10),
-        child: Image.file(
+        child: SvgPicture.file(
           File(widget.imagePath!),
           width: _currentWidth * zoom,
           height: _currentHeight * zoom,

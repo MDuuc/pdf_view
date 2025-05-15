@@ -115,41 +115,51 @@ class _SignaturePadState extends State<SignaturePad> {
           const double canvasHeight = 200;
           const double padding = 10;
 
-          // Calculate the shrink ratio so that the signature fits the canvas (with padding)
+          // Calculate the scale to fit the signature within the canvas (with padding)
           double scale = min(
-              (canvasWidth - 2 * padding) / bboxWidth, (canvasHeight - 2 * padding) / bboxHeight);
+              (canvasWidth - 2 * padding) / bboxWidth,
+              (canvasHeight - 2 * padding) / bboxHeight);
 
-          // Calculate offset to center signature
+          // Calculate offset to center the signature
           double offsetX = (canvasWidth - bboxWidth * scale) / 2;
           double offsetY = (canvasHeight - bboxHeight * scale) / 2;
 
-          // Transform the points
-          List<Offset?> transformedPoints = points.map((point) {
-            if (point == null) return null;
+          // Build SVG path data
+          StringBuffer pathData = StringBuffer();
+          bool isFirstPoint = true;
+          for (var point in points) {
+            if (point == null) {
+              isFirstPoint = true;
+              continue;
+            }
             double x = (point.dx - minX) * scale + offsetX;
             double y = (point.dy - minY) * scale + offsetY;
-            return Offset(x, y);
-          }).toList();
+            if (isFirstPoint) {
+              pathData.write('M$x,$y ');
+              isFirstPoint = false;
+            } else {
+              pathData.write('L$x,$y ');
+            }
+          }
 
-          // Draw the signature on the canvas with transformed points
-          final recorder = ui.PictureRecorder();
-          final canvas = Canvas(recorder, Rect.fromLTWH(0, 0, canvasWidth, canvasHeight));
-          SignaturePainter(transformedPoints).paint(canvas, Size(canvasWidth, canvasHeight));
-          final picture = recorder.endRecording();
-          final img = await picture.toImage(canvasWidth.toInt(), canvasHeight.toInt());
-          final byteData = await img.toByteData(format: ui.ImageByteFormat.png);
-          final buffer = byteData!.buffer.asUint8List();
+          // Create SVG content
+          String svgContent = '''
+<?xml version="1.0" encoding="UTF-8"?>
+<svg width="$canvasWidth" height="$canvasHeight" viewBox="0 0 $canvasWidth $canvasHeight" xmlns="http://www.w3.org/2000/svg">
+  <path d="$pathData" fill="none" stroke="black" stroke-width="1" stroke-linecap="round" stroke-linejoin="round"/>
+</svg>
+''';
 
-          // Save file PNG with a random name
+          // Save SVG file with a random name
           final tempDir = await getTemporaryDirectory();
           final randomString = DateTime.now().millisecondsSinceEpoch.toString();
-          final signaturePath = '${tempDir.path}/signature_$randomString.png';
-          await File(signaturePath).writeAsBytes(buffer);
+          final signaturePath = '${tempDir.path}/signature_$randomString.svg';
+          await File(signaturePath).writeAsString(svgContent);
 
           // Save points to JSON
           await _savePoints();
 
-          print("Saved signature at: $signaturePath");
+          print("Saved SVG signature at: $signaturePath");
           print("File size: ${File(signaturePath).lengthSync()} bytes");
 
           widget.onSignatureSaved(signaturePath);
@@ -162,6 +172,9 @@ class _SignaturePadState extends State<SignaturePad> {
         print("Points list is empty");
         _showSnackBar('Vui lòng vẽ chữ ký trước khi lưu');
       }
+    } catch (e) {
+      print("Error saving SVG: $e");
+      _showSnackBar('Lỗi khi lưu chữ ký');
     } finally {
       setState(() {
         _isSaving = false;

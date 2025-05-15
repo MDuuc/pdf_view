@@ -25,12 +25,24 @@ class _HomeScreenState extends State<HomeScreen> {
   @override
   void initState() {
     super.initState();
+    _cleanOldPdfs();
   }
 
   @override
   void dispose() {
     _fileNameController.dispose();
     super.dispose();
+  }
+
+//clean temporay file pdf
+  Future<void> _cleanOldPdfs() async {
+    final outputDir = await getApplicationDocumentsDirectory();
+    final files = outputDir.listSync();
+    for (var file in files) {
+      if (file is File && file.path.contains('edited_') && file.path.endsWith('.pdf')) {
+        await file.delete();
+      }
+    }
   }
 
   // Choose file PDF from device
